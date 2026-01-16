@@ -1,0 +1,102 @@
+# Gemini 3 API 脚本生成请求导出
+# 用于在其他项目中使用Gemini 3的低思考和高思考功能
+
+## API 地址
+POST https://grsai.dakka.com.cn/v1/chat/completions
+
+## 请求头 (Headers)
+```json
+{
+  "Authorization": "Bearer YOUR_API_KEY",
+  "Content-Type": "application/json"
+}
+```
+
+## 低思考模式请求体 (thinking_level: "low")
+```json
+{
+  "model": "gemini-3-pro",
+  "messages": [
+    {
+      "role": "system",
+      "content": "你是一个专业的视频脚本创作专家。你的任务是根据用户的创意和风格要求，生成一个结构化的视频脚本。\n\n脚本要求：\n1. 视频总时长：60秒\n2. 单个片段时长：8秒\n3. 片段数量：7个\n4. **脚本风格（必须严格遵守）**：纪录片风格\n\n脚本格式要求：\n- **必须包含第0帧（开场画面）**：在第一个片段之前，格式为 `第0帧：详细描述开场画面...`\n- **每个片段必须严格按照时间范围格式**：(开始秒数-结束秒数s) 内容描述\n- **时间格式示例**：(0-8s), (8-16s)\n- **重要：每个片段的内容描述必须非常详细和具体，能够充分描述8秒的视频内容**\n- **内容长度要求：每个片段的内容描述必须包含32-48个汉字**\n\n请直接输出脚本内容，不要添加任何解释或说明。"
+    },
+    {
+      "role": "user",
+      "content": "请根据以下创意生成视频脚本：\n\n创意：探索人工智能的未来发展\n\n请按照上述格式要求，生成脚本，包括：\n1. **第0帧（开场画面）**\n2. **7个片段**：每个片段的内容描述必须非常详细，包含32-48个汉字"
+    }
+  ],
+  "temperature": 1.0,
+  "max_tokens": 4000,
+  "extra_body": {
+    "thinking_level": "low"
+  }
+}
+```
+
+## 高思考模式请求体 (thinking_level: "high")
+```json
+{
+  "model": "gemini-3-pro",
+  "messages": [
+    {
+      "role": "system",
+      "content": "你是一个专业的视频脚本创作专家。你的任务是根据用户的创意和风格要求，生成一个结构化的视频脚本。\n\n脚本要求：\n1. 视频总时长：60秒\n2. 单个片段时长：8秒\n3. 片段数量：7个\n4. **脚本风格（必须严格遵守）**：纪录片风格\n\n脚本格式要求：\n- **必须包含第0帧（开场画面）**：在第一个片段之前，格式为 `第0帧：详细描述开场画面...`\n- **每个片段必须严格按照时间范围格式**：(开始秒数-结束秒数s) 内容描述\n- **时间格式示例**：(0-8s), (8-16s)\n- **重要：每个片段的内容描述必须非常详细和具体，能够充分描述8秒的视频内容**\n- **内容长度要求：每个片段的内容描述必须包含32-48个汉字**\n\n请直接输出脚本内容，不要添加任何解释或说明。"
+    },
+    {
+      "role": "user",
+      "content": "请根据以下创意生成视频脚本：\n\n创意：探索人工智能的未来发展\n\n请按照上述格式要求，生成脚本，包括：\n1. **第0帧（开场画面）**\n2. **7个片段**：每个片段的内容描述必须非常详细，包含32-48个汉字"
+    }
+  ],
+  "temperature": 1.0,
+  "max_tokens": 4000,
+  "extra_body": {
+    "thinking_level": "high"
+  }
+}
+```
+
+## 参数说明
+
+### 必需参数
+- **Authorization**: Bearer token认证，API Key
+- **model**: "gemini-3-pro"
+- **messages**: 包含system和user消息
+- **extra_body.thinking_level**: "low" 或 "high"
+
+### 可选参数
+- **temperature**: 推荐使用1.0（默认值）
+- **max_tokens**: 最大输出token数，建议4000
+
+## 注意事项
+
+1. **API Key获取**: 需要从GRS AI平台获取有效的API Key
+2. **思考等级**: 通过`extra_body.thinking_level`参数控制
+3. **兼容性**: 使用OpenAI兼容格式，支持extra_body扩展参数
+4. **错误处理**: API可能返回thinking相关错误，需要适当处理
+
+## 响应格式
+
+```json
+{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "created": 1677652288,
+  "model": "gemini-3-pro",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "生成的脚本内容..."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 200,
+    "total_tokens": 300
+  }
+}
+```
