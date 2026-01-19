@@ -67,6 +67,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '一键生成', requiresAuth: true }
   },
   {
+    path: '/one-step',
+    name: 'OneStepGenerate',
+    component: () => import('@/views/OneStepGenerateView.vue'),
+    meta: { title: '一步生成', requiresAuth: true }
+  },
+  {
+    path: '/project/:projectId/one-step',
+    name: 'OneStepGenerateProject',
+    component: () => import('@/views/OneStepGenerateView.vue'),
+    meta: { title: '一步生成', requiresAuth: true }
+  },
+  {
     path: '/project/:projectId',
     redirect: to => `/project/${to.params.projectId}/script`
   },

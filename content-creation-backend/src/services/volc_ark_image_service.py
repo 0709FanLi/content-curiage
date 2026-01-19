@@ -113,6 +113,80 @@ class VolcArkImageService:
 
         raise VolcArkApiError(f"火山方舟图片生成未返回 url: {data}")
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.TransportError)),
+        before_sleep=before_sleep_log(logger=tenacity_logger, log_level=logging.WARNING),
+    )
+    async def generate_images_group(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        size: str,
+        max_images: int,
+        reference_image_urls: Optional[List[str]] = None,
+        response_format: str = "url",
+        watermark: bool = False,
+        timeout_sec: Optional[float] = None,
+    ) -> List[str]:
+        """Seedream 4.5 文生组图：一次生成多张一致性更强的图片。
+
+        说明：
+        - 使用 sequential_image_generation=auto
+        - 通过 sequential_image_generation_options.max_images 控制最多输出张数
+        - 返回按顺序的图片 url 列表（会忽略生成失败的元素；若全部失败则抛错）
+        """
+        if max_images <= 0:
+            raise ValueError("max_images 必须 > 0")
+        max_images = max(1, min(15, int(max_images)))
+
+        url = f"{self.base_url}/images/generations"
+        payload: Dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "sequential_image_generation": "auto",
+            "sequential_image_generation_options": {"max_images": max_images},
+            "response_format": response_format,
+            "size": size,
+            "stream": False,
+            "watermark": watermark,
+        }
+        if reference_image_urls:
+            payload["image"] = reference_image_urls[:14]
+
+        # 组图通常更慢：支持外部传入超时（例如：每张图 10 分钟）
+        timeout = float(timeout_sec) if timeout_sec is not None else 90.0
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, headers=self._get_headers(), json=payload)
+
+        if resp.status_code == 401:
+            raise VolcArkAuthError(
+                "火山方舟 401 Unauthorized：请检查 HUOSHAN_API_KEY 与模型开通状态"
+            )
+
+        resp.raise_for_status()
+        data = resp.json()
+
+        images = data.get("data")
+        urls: List[str] = []
+        if isinstance(images, list):
+            for item in images:
+                if not isinstance(item, dict):
+                    continue
+                # 成功结构
+                u = item.get("url") or (item.get("data") or {}).get("url")
+                if u:
+                    urls.append(str(u))
+                    continue
+                # 失败结构：item.get("error")...
+        if urls:
+            return urls
+
+        raise VolcArkApiError(f"火山方舟组图生成未返回可用 url: {data}")
+
 
 volc_ark_image_service = VolcArkImageService()
 

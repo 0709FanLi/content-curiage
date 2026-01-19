@@ -103,6 +103,8 @@ class DeepSeekService:
         model: str = "deepseek-chat",
         max_tokens: int = 4000,
         temperature: float = 0.7,
+        min_chars_per_sec: float = 3.3,
+        max_chars_per_sec: float = 3.6,
         custom_prompt_template: Optional[str] = None,
         vision_guidance: Optional[str] = None,
         enable_search: bool = False,
@@ -138,13 +140,15 @@ class DeepSeekService:
             last_segment_duration = 4
             total_duration = int(segment_duration * (segment_count - 1) + last_segment_duration)
         
-        # 口播字数控制：按“3.3–3.6 字/秒”口径
+        # 口播字数控制：按“min_chars_per_sec–max_chars_per_sec 字/秒”口径（由上层按 generation_mode 选择）
         # - 常规段：segment_duration 秒
         # - 最后一段：last_segment_duration 秒（通常 < segment_duration）
-        content_length_min = int(segment_duration * 3.3)
-        content_length_max = int(segment_duration * 3.6)
-        last_content_length_min = int(last_segment_duration * 3.3)
-        last_content_length_max = int(last_segment_duration * 3.6)
+        min_cps = float(min_chars_per_sec)
+        max_cps = float(max_chars_per_sec)
+        content_length_min = int(segment_duration * min_cps)
+        content_length_max = int(segment_duration * max_cps)
+        last_content_length_min = int(last_segment_duration * min_cps)
+        last_content_length_max = int(last_segment_duration * max_cps)
         
         # 提取热点策略上下文
         clean_inspiration, strategy_context = self._extract_strategy_context(inspiration)
@@ -547,6 +551,7 @@ class QwenService:
             last_segment_duration = 4
             total_duration = int(segment_duration * (segment_count - 1) + last_segment_duration)
         
+        # 口播字数控制：默认按“3.3–3.6 字/秒”口径（一步生成的硬约束在 DeepSeek/Gemini 路径里按 generation_mode 处理）
         content_length_min = int(segment_duration * 3.3)
         content_length_max = int(segment_duration * 3.6)
         last_content_length_min = int(last_segment_duration * 3.3)
@@ -1132,6 +1137,8 @@ class Gemini3Service:
         thinking_level: str = "low",
         max_tokens: int = 4000,
         temperature: float = 1.0,
+        min_chars_per_sec: float = 3.3,
+        max_chars_per_sec: float = 3.6,
         custom_prompt_template: Optional[str] = None,
         vision_guidance: Optional[str] = None,
         enable_search: bool = False,
@@ -1153,10 +1160,13 @@ class Gemini3Service:
             last_segment_duration = 4
             total_duration = int(segment_duration * (segment_count - 1) + last_segment_duration)
         
-        content_length_min = int(segment_duration * 3.3)
-        content_length_max = int(segment_duration * 3.6)
-        last_content_length_min = int(last_segment_duration * 3.3)
-        last_content_length_max = int(last_segment_duration * 3.6)
+        # 口播字数控制：按“min_chars_per_sec–max_chars_per_sec 字/秒”口径（由上层按 generation_mode 选择）
+        min_cps = float(min_chars_per_sec)
+        max_cps = float(max_chars_per_sec)
+        content_length_min = int(segment_duration * min_cps)
+        content_length_max = int(segment_duration * max_cps)
+        last_content_length_min = int(last_segment_duration * min_cps)
+        last_content_length_max = int(last_segment_duration * max_cps)
         
         # 提取热点策略上下文
         clean_inspiration, strategy_context = self._extract_strategy_context(inspiration)

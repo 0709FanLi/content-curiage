@@ -15,7 +15,7 @@ import os
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(env_path)
 
-from src.api.routers import auth, projects, scripts, keyframes, videos, files, models, system_config, hotspots, timelines, tts
+from src.api.routers import auth, projects, scripts, keyframes, videos, files, models, system_config, hotspots, timelines, tts, step_generate
 from src.config.settings import settings
 from src.models.database import create_tables, get_db
 from src.utils.logging import setup_logging
@@ -242,6 +242,7 @@ def create_application() -> FastAPI:
     app.include_router(hotspots.router, prefix="/api/hotspots", tags=["热点情报"])
     app.include_router(timelines.router, prefix="/api/timelines", tags=["时间线管理"])
     app.include_router(tts.router, prefix="/api/tts", tags=["TTS语音合成"])
+    app.include_router(step_generate.router, prefix="/api/step-generate", tags=["一步生成"])
 
     # 健康检查
     @app.get("/health", tags=["健康检查"])

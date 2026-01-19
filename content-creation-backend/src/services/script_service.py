@@ -346,6 +346,12 @@ class ScriptService:
             using_custom_prompt=bool(prompt_template),
             has_vision_guidance=bool(vision_guidance)
         )
+
+        # 口播字数口径：默认 3.3–3.6 字/秒；一步生成(one_step) 使用 4.0–10.0 字/秒（4s：16–40 字）
+        generation_mode = str(getattr(request, "generation_mode", "") or "").strip()
+        is_one_step = generation_mode == "one_step"
+        min_cps = 4.0 if is_one_step else 3.3
+        max_cps = 10.0 if is_one_step else 3.6
         
         script_content = await self.llm_service.generate_script(
             inspiration=request.inspiration,
@@ -353,6 +359,8 @@ class ScriptService:
             total_duration=request.total_duration,
             segment_duration=request.segment_duration,
             model=model,
+            min_chars_per_sec=min_cps,
+            max_chars_per_sec=max_cps,
             custom_prompt_template=prompt_template,
             vision_guidance=vision_guidance,
             enable_search=getattr(request, "enable_search", False),
@@ -380,8 +388,7 @@ class ScriptService:
         # --- 口播字数兜底：不截断，触发一次“重写口播文案” ---
         # 背景：部分模型会忽略字数约束，导致 10s 只有 20 多字或超长。
         # 策略：若检测到明显不符合范围，则调用一次 optimize_script，只重写“口播文案”行。
-        min_cps = 3.3
-        max_cps = 3.6
+        # 口播字数兜底口径：与生成阶段保持一致（默认 3.3–3.6；one_step 为 4.0–4.5）
         if segments and self._needs_narration_rewrite(
             segments, min_chars_per_sec=min_cps, max_chars_per_sec=max_cps
         ):
@@ -452,6 +459,26 @@ class ScriptService:
                 total_duration=request.total_duration,
                 segment_duration=request.segment_duration
             )
+
+        # ✅ 强约束：最终 segments 必须严格落在总时长内，且段数不超过 ceil(total/segment)
+        # 背景：LLM 可能输出“多一段”，normalize 只改前 N 段时间戳，剩余段落仍会被解析出来。
+        total_sec = float(request.total_duration)
+        seg_sec = float(request.segment_duration)
+        capped: List[ScriptSegment] = []
+        for seg in segments:
+            if float(seg.time_start) >= total_sec:
+                continue
+            # clamp end
+            seg.time_end = float(min(float(seg.time_end), total_sec))
+            capped.append(seg)
+        segments = capped[:expected_segments]
+
+        # 再兜底一次：按“均匀分段”重写时间轴，保证前端时间码稳定
+        for i, seg in enumerate(segments):
+            start = float(i) * seg_sec
+            end = min(total_sec, float(i + 1) * seg_sec)
+            seg.time_start = start
+            seg.time_end = end
         
         return {
             "content": script_content,

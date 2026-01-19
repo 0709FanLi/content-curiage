@@ -12,6 +12,9 @@ from .system_config import SystemConfig
 from .hotspot_snapshot import HotspotSnapshot
 from .asset import Asset, AssetType, AssetSource
 from .timeline import Timeline, Track, Clip, TrackType
+from .step_run import StepRun, StepRunStatus
+from .step_segment import StepSegment
+from .step_run_event import StepRunEvent
 
 __all__ = [
     "User",
@@ -33,4 +36,9 @@ __all__ = [
     "Track",
     "Clip",
     "TrackType",
+    # Step Generate 相关
+    "StepRun",
+    "StepRunStatus",
+    "StepSegment",
+    "StepRunEvent",
 ]

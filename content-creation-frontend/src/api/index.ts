@@ -235,3 +235,38 @@ export const hotspotApi = {
     // 热点详情会调用外部服务分析，可能需要较长时间；单独提高超时避免前端 30s 默认超时
     request.post('/hotspots/detail', { title }, { timeout: 600_000 })
 }
+
+// 一步生成（Agent）
+export const stepGenerateApi = {
+  createRun: (data: {
+    title?: string
+    inspiration: string
+    total_duration_sec: number
+    segment_duration_sec: number
+    aspect_ratio?: string
+    decision_model_primary?: string
+    decision_model_fallback?: string
+    decision_thinking_level?: string
+    style?: string
+    enable_storyboard?: boolean
+    enable_seedream_group?: boolean
+    video_mode?: 'auto' | 'i2v' | 't2v'
+  }): Promise<{ run_id: number; project_id: number; script_id: number }> =>
+    request.post('/step-generate/runs', data),
+
+  getRun: (runId: number): Promise<any> =>
+    request.get(`/step-generate/runs/${runId}`),
+
+  getSnapshot: (runId: number): Promise<any> =>
+    request.get(`/step-generate/runs/${runId}/snapshot`),
+
+  getLatestRunByProject: (projectId: number): Promise<{ run_id: number | null; script_id?: number; project_id?: number }> =>
+    request.get(`/step-generate/projects/${projectId}/latest-run`),
+
+  // SSE：前端用 fetch 读取 text/event-stream，这里只提供 URL 生成
+  eventsUrl: (runId: number, afterId: number = 0): string =>
+    `/api/step-generate/runs/${runId}/events?after_id=${afterId}`,
+
+  command: (runId: number, message: string): Promise<any> =>
+    request.post(`/step-generate/runs/${runId}/command`, { message })
+}

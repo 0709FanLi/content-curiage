@@ -185,6 +185,14 @@
                 />
                 一键生成
               </button>
+              <button
+                class="btn primary"
+                type="button"
+                :disabled="!can_submit"
+                @click="go_to_one_step"
+              >
+                一步生成
+              </button>
             </div>
           </div>
         </div>
@@ -1078,6 +1086,21 @@ const submit_one_click = async () => {
   } catch (e: any) {
     ElMessage.error(e?.message || '一键生成失败')
   }
+}
+
+const go_to_one_step = async () => {
+  if (!can_submit.value) return
+  // 复用 same input，进入一步生成页面（在该页创建 run 并自动新建项目）
+  await router.push({
+    name: 'OneStepGenerate',
+    query: {
+      inspiration: inspiration.value.trim(),
+      totalDuration: String(total_duration.value),
+      segmentDuration: String(segment_duration.value),
+      aspectRatio: aspect_ratio.value,
+      model: selected_model_id.value,
+    },
+  })
 }
 
 onMounted(async () => {

@@ -10,6 +10,14 @@
         <h1 class="oc-title">一键生成</h1>
       </div>
       <div class="oc-topbar-right">
+        <el-button
+          type="default"
+          class="oc-btn oc-btn-ghost"
+          @click="goToOneStep"
+        >
+          一步生成
+        </el-button>
+
         <!-- 设计图里的“继续”改为“重试”，忽略“完整脚本”按钮 -->
         <el-button 
           v-if="canRetry"
@@ -1195,6 +1203,10 @@ const handleCancelGeneration = async () => {
 
 const handleBack = () => {
     router.push({ name: 'InspirationInput' })
+}
+
+const goToOneStep = () => {
+  router.push({ name: 'OneStepGenerate' })
 }
 
 const handleDownload = async () => {

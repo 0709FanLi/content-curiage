@@ -242,6 +242,12 @@ const openProject = async (project: any) => {
         name: 'OneClickGenerate',
         params: { projectId: project.id.toString() }
       })
+    } else if (mode === 'one_step') {
+      // 一步生成项目：进入一步生成页面（页面内会按 projectId 自动恢复最新 run）
+      await router.replace({
+        name: 'OneStepGenerateProject',
+        params: { projectId: project.id.toString() }
+      })
     }
 
     if (seq === open_project_seq) {

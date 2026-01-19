@@ -263,9 +263,14 @@ const openProject = async (project: Project) => {
     // 根据项目的生成模式和状态跳转到对应页面
     let targetRoute: string
     
+    const mode = String(projectData?.generationMode || projectData?.generation_mode || '')
+
     // 如果是一键生成模式，始终跳转到一键生成页面
-    if (projectData.generationMode === 'one_click') {
+    if (mode === 'one_click') {
       targetRoute = 'OneClickGenerate'
+    } else if (mode === 'one_step') {
+      // 一步生成项目：进入一步生成页面（页面内按 projectId 自动恢复最新 run）
+      targetRoute = 'OneStepGenerateProject'
     } else {
       // 分步生成模式，根据状态跳转
       switch (projectData.status) {

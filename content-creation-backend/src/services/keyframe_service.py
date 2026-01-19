@@ -14,6 +14,7 @@ from src.models.tables.keyframe import Keyframe, KeyframeStatus
 from src.models.tables.script import Script
 from src.models.database import async_session_maker
 from src.services.image_generation_service import image_generation_service
+from src.services.volc_ark_image_service import volc_ark_image_service
 from src.services.oss_service import oss_service
 from src.services.upload_limiter import upload_limiter
 from src.utils.script_parser import (
@@ -174,6 +175,93 @@ class KeyframeService:
             scheduled_count=len(ids_to_generate),
         )
 
+        return keyframes
+
+    async def generate_storyboard_keyframes_seedream_group(
+        self,
+        *,
+        script_id: int,
+        aspect_ratio: str,
+        reference_image_urls: Optional[List[str]] = None,
+        model: str = "doubao-seedream-4-5-251128",
+    ) -> List[Keyframe]:
+        """智能分镜：使用 Seedream 4.5 文生组图，一次生成 N 张分镜首帧，并写入 Keyframe 表（COMPLETED）。
+
+        目标：
+        - “不同故事情节的镜头”：用脚本每段的 keyframe_desc/video_desc 作为分镜条目
+        - “多图一致性”：使用 Seedream 的 sequential_image_generation=auto 一次性出图
+        - “作为首帧生成视频”：后续 VideoService 会以 keyframe.image_url 作为 first_frame_url
+
+        注意：
+        - 组图 API 仅能输入一个 prompt，因此我们把 N 段分镜要求拼成一个“强格式 prompt”，让模型按序生成。
+        - 返回图片张数可能小于 max_images（模型自判）；这里若不足 N，会用“最后一张”补齐以保证每段都有首帧（MVP 策略）。
+        """
+        # 获取脚本
+        result = await self.db.execute(select(Script).where(Script.id == script_id))
+        script = result.scalar_one_or_none()
+        if not script or not script.content:
+            raise ValidationError(f"脚本不存在或内容为空: {script_id}")
+
+        segments = parse_script(script.content)
+        if not segments:
+            raise ValidationError("脚本中没有找到有效段落")
+
+        # 删除旧关键帧
+        await self.db.execute(delete(Keyframe).where(Keyframe.script_id == script_id))
+        await self.db.commit()
+
+        # Seedream 推荐尺寸映射（2K）
+        size_map = {
+            "16:9": "2560x1440",
+            "9:16": "1440x2560",
+            "1:1": "2048x2048",
+        }
+        size = size_map.get(aspect_ratio, "2560x1440")
+
+        # 拼接“分镜 prompt”（强格式）
+        lines = []
+        for idx, seg in enumerate(segments):
+            desc = (seg.keyframe_desc or seg.video_desc or seg.content or "").strip()
+            desc = desc.replace("\n", " ").strip()
+            lines.append(f"{idx+1}. {desc}")
+
+        storyboard_prompt = (
+            "你是专业分镜师。请根据下面的分镜列表生成一组连贯一致的分镜图（同一主角/同一风格/同一光影与色调），"
+            "每张图对应一条分镜，按顺序输出。\n"
+            "要求：写实电影感、构图明确、主体清晰、避免文字水印、不要生成多余画面。\n"
+            f"分镜列表（共 {len(lines)} 张）：\n" + "\n".join(lines)
+        )
+
+        urls = await volc_ark_image_service.generate_images_group(
+            model=model,
+            prompt=storyboard_prompt,
+            size=size,
+            max_images=len(lines),
+            reference_image_urls=reference_image_urls,
+            watermark=False,
+            # 组图较慢：按“每张图 10 分钟”给足超时（用户要求）
+            timeout_sec=float(600 * max(1, len(lines))),
+        )
+
+        if not urls:
+            raise ValidationError("Seedream 组图生成失败：未返回图片 URL")
+
+        # 写入 keyframes（直接 COMPLETED）
+        keyframes: List[Keyframe] = []
+        for idx, seg in enumerate(segments):
+            img_url = urls[idx] if idx < len(urls) else None
+            kf = Keyframe(
+                script_id=script_id,
+                segment_id=seg.segment_id,
+                prompt=seg.keyframe_desc or seg.content,
+                image_url=img_url,
+                status=KeyframeStatus.COMPLETED if img_url else KeyframeStatus.FAILED,
+                error_message=None if img_url else "Seedream 组图未返回该序号图片，已降级为 T2V",
+            )
+            self.db.add(kf)
+            keyframes.append(kf)
+
+        await self.db.commit()
         return keyframes
 
     async def _generate_keyframes_background(

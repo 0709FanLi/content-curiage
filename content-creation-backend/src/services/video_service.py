@@ -568,6 +568,212 @@ class VideoService:
 
         return video_segments
 
+    async def generate_videos_text_only(
+        self,
+        script_id: int,
+        model: str = DOUBAO_SEEDANCE_1_5_PRO_MODEL_ID,
+        aspect_ratio: str = "16:9",
+        duration: float = 4.0,
+    ) -> List[VideoSegment]:
+        """纯文生视频（T2V）批量生成：不依赖关键帧。
+
+        适用于：
+        - one_step 关闭智能分镜时
+        - 或 agent 判断某些段落无需首帧/参考图
+
+        说明：
+        - first_frame_url/last_frame_url 为空时，Ark/部分模型会按纯文本生成（真正的 T2V）
+        - 仍复用现有的后台生成与并发控制逻辑
+        """
+        if model.startswith('jimeng') and not bool(getattr(settings, 'enable_jimeng_video', False)):
+            raise ValidationError('即梦视频模型已被禁用（仅用于对比测试），如需启用请打开配置开关')
+
+        result = await self.db.execute(select(Script).where(Script.id == script_id))
+        script = result.scalar_one_or_none()
+        if not script or not script.content:
+            raise ValidationError(f'脚本不存在或内容为空: {script_id}')
+
+        segments = parse_script(script.content)
+        if not segments:
+            raise ValidationError('脚本中没有找到有效段落')
+
+        segment_map = {seg.segment_id: seg for seg in segments}
+
+        await self.db.execute(delete(VideoSegment).where(VideoSegment.script_id == script_id))
+        await self.db.commit()
+
+        video_configs = []
+        for idx, seg in enumerate(segments):
+            prompt_text = self._build_video_prompt_from_video_desc(seg, (seg.video_desc or seg.content or '').strip())
+            video_configs.append(
+                {
+                    "segment_index": idx,
+                    "first_frame_url": None,
+                    "last_frame_url": None,
+                    "prompt": prompt_text,
+                    "aspect_ratio": self._determine_aspect_ratio(model, prompt_text),
+                }
+            )
+
+        video_segments: List[VideoSegment] = []
+        display_concurrency = _get_max_concurrent_video_generations()
+        if model.startswith('jimeng'):
+            display_concurrency = 1
+
+        try:
+            base_duration = float(duration)
+        except Exception:
+            base_duration = 4.0
+        base_duration = max(4.0, min(12.0, base_duration))
+
+        target_total_duration = None
+        try:
+            if getattr(script, "total_duration", None) is not None:
+                target_total_duration = float(script.total_duration)
+        except Exception:
+            target_total_duration = None
+        if target_total_duration is None or target_total_duration <= 0:
+            target_total_duration = base_duration * max(1, len(video_configs))
+
+        last_raw = float(target_total_duration) - base_duration * max(0, len(video_configs) - 1)
+        last_segment_duration = max(4.0, min(12.0, last_raw))
+
+        for idx, config in enumerate(video_configs):
+            final_aspect_ratio = config.get('aspect_ratio', aspect_ratio) if model in ["veo3.1-fast-ref"] else aspect_ratio
+            seg_duration = base_duration if idx < len(video_configs) - 1 else last_segment_duration
+
+            seg_model = model
+            # 规则：最后一段固定使用豆包模型（以确保 4-12s 时长可控）
+            if idx == len(video_configs) - 1:
+                seg_model = DOUBAO_SEEDANCE_1_5_PRO_MODEL_ID
+
+            video_segment = VideoSegment(
+                script_id=script_id,
+                segment_index=config['segment_index'],
+                first_frame_url=None,
+                last_frame_url=None,
+                prompt=config['prompt'],
+                model=seg_model,
+                aspect_ratio=final_aspect_ratio,
+                duration=seg_duration,
+                status=(
+                    VideoStatus.GENERATING
+                    if len(video_segments) < display_concurrency
+                    else VideoStatus.PENDING
+                ),
+            )
+            self.db.add(video_segment)
+            video_segments.append(video_segment)
+
+        await self.db.commit()
+        video_segment_ids = [vs.id for vs in video_segments]
+        asyncio.create_task(self._generate_videos_background(video_segment_ids))
+        return video_segments
+
+    async def generate_videos_mixed_first_frame(
+        self,
+        *,
+        script_id: int,
+        model: str = DOUBAO_SEEDANCE_1_5_PRO_MODEL_ID,
+        aspect_ratio: str = "16:9",
+        duration: float = 4.0,
+        first_frame_by_segment_id: Optional[Dict[str, str]] = None,
+        i2v_segment_ids: Optional[set] = None,
+    ) -> List[VideoSegment]:
+        """按段混用 I2V/T2V：对指定 segment_id 使用首帧参考，其余纯文本（T2V）。
+
+        - i2v_segment_ids 中的段落：若存在对应 first_frame url，则 I2V；否则降级为 T2V
+        - 非 i2v 段落：first_frame_url=None，走纯文本生成
+        """
+        if model.startswith('jimeng') and not bool(getattr(settings, 'enable_jimeng_video', False)):
+            raise ValidationError('即梦视频模型已被禁用（仅用于对比测试），如需启用请打开配置开关')
+
+        result = await self.db.execute(select(Script).where(Script.id == script_id))
+        script = result.scalar_one_or_none()
+        if not script or not script.content:
+            raise ValidationError(f'脚本不存在或内容为空: {script_id}')
+
+        segments = parse_script(script.content)
+        if not segments:
+            raise ValidationError('脚本中没有找到有效段落')
+
+        await self.db.execute(delete(VideoSegment).where(VideoSegment.script_id == script_id))
+        await self.db.commit()
+
+        first_frame_by_segment_id = first_frame_by_segment_id or {}
+        i2v_segment_ids = i2v_segment_ids or set()
+
+        video_configs = []
+        for idx, seg in enumerate(segments):
+            prompt_text = self._build_video_prompt_from_video_desc(seg, (seg.video_desc or seg.content or '').strip())
+            ff = None
+            if seg.segment_id in i2v_segment_ids:
+                ff = first_frame_by_segment_id.get(seg.segment_id) or None
+            video_configs.append(
+                {
+                    "segment_index": idx,
+                    "segment_id": seg.segment_id,
+                    "first_frame_url": ff,
+                    "last_frame_url": None,
+                    "prompt": prompt_text,
+                    "aspect_ratio": self._determine_aspect_ratio(model, prompt_text),
+                }
+            )
+
+        video_segments: List[VideoSegment] = []
+        display_concurrency = _get_max_concurrent_video_generations()
+        if model.startswith('jimeng'):
+            display_concurrency = 1
+
+        try:
+            base_duration = float(duration)
+        except Exception:
+            base_duration = 4.0
+        base_duration = max(4.0, min(12.0, base_duration))
+
+        target_total_duration = None
+        try:
+            if getattr(script, "total_duration", None) is not None:
+                target_total_duration = float(script.total_duration)
+        except Exception:
+            target_total_duration = None
+        if target_total_duration is None or target_total_duration <= 0:
+            target_total_duration = base_duration * max(1, len(video_configs))
+
+        last_raw = float(target_total_duration) - base_duration * max(0, len(video_configs) - 1)
+        last_segment_duration = max(4.0, min(12.0, last_raw))
+
+        for idx, config in enumerate(video_configs):
+            final_aspect_ratio = config.get('aspect_ratio', aspect_ratio) if model in ["veo3.1-fast-ref"] else aspect_ratio
+            seg_duration = base_duration if idx < len(video_configs) - 1 else last_segment_duration
+
+            seg_model = model
+            if idx == len(video_configs) - 1:
+                seg_model = DOUBAO_SEEDANCE_1_5_PRO_MODEL_ID
+
+            video_segment = VideoSegment(
+                script_id=script_id,
+                segment_index=config['segment_index'],
+                first_frame_url=config.get("first_frame_url"),
+                last_frame_url=None,
+                prompt=config['prompt'],
+                model=seg_model,
+                aspect_ratio=final_aspect_ratio,
+                duration=seg_duration,
+                status=(
+                    VideoStatus.GENERATING
+                    if len(video_segments) < display_concurrency
+                    else VideoStatus.PENDING
+                ),
+            )
+            self.db.add(video_segment)
+            video_segments.append(video_segment)
+
+        await self.db.commit()
+        video_segment_ids = [vs.id for vs in video_segments]
+        asyncio.create_task(self._generate_videos_background(video_segment_ids))
+        return video_segments
+
     @staticmethod
     def _build_video_prompt_from_video_desc(
         script_segment: Optional[ScriptSegment], fallback_prompt: str
@@ -949,9 +1155,23 @@ class VideoService:
                 )
 
                 # 触发音频生成流水线（异步，不阻塞视频生成）
-                asyncio.create_task(
-                    self._generate_audio_for_video_segment(video_segment_id)
-                )
+                # 一步生成/对话式重生成场景：若音频已存在且完成，默认不重做音频（video_only）。
+                try:
+                    has_audio = bool(getattr(video_segment, "audio_url", None))
+                    audio_done = getattr(video_segment, "audio_status", None) == AudioStatus.COMPLETED
+                except Exception:
+                    has_audio = False
+                    audio_done = False
+
+                if not (has_audio and audio_done):
+                    asyncio.create_task(
+                        self._generate_audio_for_video_segment(video_segment_id)
+                    )
+                else:
+                    logger.info(
+                        "Skip audio generation for video segment (audio already completed)",
+                        video_segment_id=video_segment_id,
+                    )
 
             except Exception as e:
                 logger.error(
