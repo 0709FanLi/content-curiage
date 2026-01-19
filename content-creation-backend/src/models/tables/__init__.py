@@ -12,6 +12,7 @@ from .system_config import SystemConfig
 from .hotspot_snapshot import HotspotSnapshot
 from .asset import Asset, AssetType, AssetSource
 from .timeline import Timeline, Track, Clip, TrackType
+from .medeo_project import MedeoProject
 
 __all__ = [
     "User",
@@ -33,4 +34,5 @@ __all__ = [
     "Track",
     "Clip",
     "TrackType",
+    "MedeoProject",
 ]

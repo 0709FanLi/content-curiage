@@ -235,3 +235,38 @@ export const hotspotApi = {
     // 热点详情会调用外部服务分析，可能需要较长时间；单独提高超时避免前端 30s 默认超时
     request.post('/hotspots/detail', { title }, { timeout: 600_000 })
 }
+
+// Medeo（后端代理）
+export const medeoApi = {
+  listRecipes: (params?: { limit?: number; order?: 'asc' | 'desc' }): Promise<any> =>
+    request.get('/medeo/recipes', { params }),
+
+  initiateProject: (data: {
+    prompt: string
+    settings: {
+      duration_ms: number
+      aspect_ratio: '16:9' | '9:16'
+      recipe_id?: string
+      voice_id?: string
+      video_style_id?: string
+      asset_sources?: string[]
+    }
+    media_ids?: string[]
+  }): Promise<{ project_id: number; chat_session_id: string; video_draft_id: string; medeo_project_id: string }> =>
+    request.post('/medeo/projects/initiate', data),
+
+  getProject: (projectId: number): Promise<any> =>
+    request.get(`/medeo/projects/${projectId}`),
+
+  patchProject: (projectId: number, data: any): Promise<any> =>
+    request.patch(`/medeo/projects/${projectId}`, data),
+
+  getLastTaskStatus: (chatSessionId: string): Promise<{ status: string; video_draft_op_record_id?: string }> =>
+    request.get(`/medeo/chat-sessions/${chatSessionId}/last-task-status`),
+
+  createRenderJob: (videoDraftOpRecordId: string): Promise<any> =>
+    request.post('/medeo/render-video-jobs', { video_draft_op_record_id: videoDraftOpRecordId }),
+
+  queryRenderJob: (videoDraftOpRecordId: string): Promise<any> =>
+    request.get('/medeo/render-video-jobs', { params: { video_draft_op_record_id: videoDraftOpRecordId } })
+}

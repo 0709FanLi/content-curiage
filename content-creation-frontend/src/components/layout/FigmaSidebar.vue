@@ -6,6 +6,10 @@
         <img class="start-icon" :src="startIcon" alt="" />
         <span class="start-text">开始制作</span>
       </button>
+      <button class="medeo-btn" type="button" @click="goToMedeo">
+        <span class="medeo-dot" />
+        <span class="medeo-text">Medeo</span>
+      </button>
     </div>
 
     <div class="sidebar-body">
@@ -66,7 +70,10 @@
               v-for="p in recentProjects"
               :key="p.id"
               class="recent-card"
-              :class="{ active: active_project_id === Number(p.id) }"
+              :class="{
+                active: active_project_id === Number(p.id),
+                'recent-card-medeo': String((p as any)?.generationMode || '') === 'medeo'
+              }"
               role="button"
               tabindex="0"
               @click="openProject(p)"
@@ -146,6 +153,10 @@ const active_project_id = computed(() => {
 
 const goToStart = () => {
   router.push({ name: 'InspirationInput' })
+}
+
+const goToMedeo = () => {
+  router.push({ name: 'MedeoStart' })
 }
 
 const selectHotspot = async (title: string) => {
@@ -242,6 +253,12 @@ const openProject = async (project: any) => {
         name: 'OneClickGenerate',
         params: { projectId: project.id.toString() }
       })
+    } else if (mode === 'medeo') {
+      // Medeo 项目：直接进入预览页（用户无需操作，自动等待生成/渲染并展示成片）
+      await router.replace({
+        name: 'MedeoPreviewProject',
+        params: { projectId: project.id.toString() }
+      })
     }
 
     if (seq === open_project_seq) {
@@ -324,7 +341,7 @@ watch(
 }
 
 .sidebar-top {
-  height: 88px;
+  height: 132px;
   padding: 18px 16px 0 16px;
   box-sizing: border-box;
 }
@@ -342,6 +359,41 @@ watch(
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+.medeo-btn {
+  margin-top: 10px;
+  width: 223px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(124, 58, 237, 0.25);
+  cursor: pointer;
+  background: rgba(124, 58, 237, 0.12);
+  color: #5b21b6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.medeo-btn:hover {
+  background: rgba(124, 58, 237, 0.16);
+  border-color: rgba(124, 58, 237, 0.35);
+}
+
+.medeo-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
+  display: inline-block;
+}
+
+.medeo-text {
+  line-height: 1;
 }
 
 .start-icon {
@@ -506,6 +558,15 @@ watch(
 .recent-card.active {
   border-color: rgba(43, 127, 255, 0.45);
   background: rgba(0, 184, 219, 0.08);
+}
+
+.recent-card.recent-card-medeo {
+  border-color: rgba(124, 58, 237, 0.28);
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.recent-card.recent-card-medeo:hover {
+  background: rgba(124, 58, 237, 0.14);
 }
 
 .recent-delete {

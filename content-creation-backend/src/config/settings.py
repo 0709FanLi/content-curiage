@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     stability_base_url: str = "https://api.stability.ai"
     stability_timeout: int = 60
 
+    # Medeo API 配置（后端代理使用）
+    medeo_api_key: Optional[str] = None
+    medeo_base_url: str = "https://api.prd.medeo.app"
+    medeo_oss_base_url: str = "https://oss.prd.medeo.app"
+
     # 任务队列配置
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/0"

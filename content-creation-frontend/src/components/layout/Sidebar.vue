@@ -21,6 +21,17 @@
           <div class="tool-item-desc">从热点灵感或主题开始，AI将为您生成脚本、分镜和完整视频</div>
         </div>
         <div
+          class="tool-item medeo-item"
+          :class="{ active: $route.name === 'MedeoStart' || $route.name === 'MedeoPreviewProject' }"
+          @click="navigateTo('medeo')"
+        >
+          <div class="tool-item-title">
+            <span class="studio-badge">NEW</span>
+            Medeo
+          </div>
+          <div class="tool-item-desc">Medeo API：一键生成并自动渲染，项目列表可直接进入预览</div>
+        </div>
+        <div
           v-if="showStudioEntry"
           class="tool-item studio-item"
           :class="{ active: $route.name === 'Studio' || $route.name === 'StudioProject' }"
@@ -54,6 +65,7 @@
           v-for="project in recentProjects"
           :key="project.id"
           class="project-item"
+          :class="{ 'project-item-medeo': (project as any)?.generationMode === 'medeo' }"
           @click="openProject(project)"
         >
           <div class="project-info">
@@ -200,6 +212,8 @@ const navigateTo = (type: string) => {
     router.push({ name: 'InspirationInput' })
   } else if (type === 'script-start') {
     router.push({ name: 'ScriptStart' })
+  } else if (type === 'medeo') {
+    router.push({ name: 'MedeoStart' })
   } else if (type === 'studio') {
     router.push({ name: 'Studio' })
   }
@@ -263,9 +277,14 @@ const openProject = async (project: Project) => {
     // 根据项目的生成模式和状态跳转到对应页面
     let targetRoute: string
     
+    const mode = String(projectData?.generationMode || projectData?.generation_mode || '')
+
     // 如果是一键生成模式，始终跳转到一键生成页面
-    if (projectData.generationMode === 'one_click') {
+    if (mode === 'one_click') {
       targetRoute = 'OneClickGenerate'
+    } else if (mode === 'medeo') {
+      // Medeo 项目：直接进入预览页（自动等待生成/渲染）
+      targetRoute = 'MedeoPreviewProject'
     } else {
       // 分步生成模式，根据状态跳转
       switch (projectData.status) {
@@ -524,6 +543,14 @@ const formatTime = (dateString: string) => {
 
 .project-item:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.project-item.project-item-medeo {
+  background: rgba(124, 58, 237, 0.12);
+}
+
+.project-item.project-item-medeo:hover {
+  background: rgba(124, 58, 237, 0.18);
 }
 
 .project-info {

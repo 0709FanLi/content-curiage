@@ -25,6 +25,18 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '开始创作', requiresAuth: true }
   },
   {
+    path: '/medeo',
+    name: 'MedeoStart',
+    component: () => import('@/views/MedeoStartView.vue'),
+    meta: { title: 'Medeo - 开始', requiresAuth: true }
+  },
+  {
+    path: '/medeo/project/:projectId',
+    name: 'MedeoPreviewProject',
+    component: () => import('@/views/MedeoPreviewView.vue'),
+    meta: { title: 'Medeo - 预览', requiresAuth: true }
+  },
+  {
     path: '/script-start',
     name: 'ScriptStart',
     component: () => import('@/views/ScriptStart.vue'),
