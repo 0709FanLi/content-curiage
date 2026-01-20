@@ -97,3 +97,50 @@ class MedeoService:
             raise MedeoServiceError(f"render_job 查询失败: {resp.status_code} {resp.text}")
         return resp.json()
 
+    async def create_media_from_url(self, *, url: str, project_id: Optional[str] = None) -> Dict[str, Any]:
+        """从 URL 异步创建 Medeo Media。
+
+        Args:
+            url: 可公开访问的媒体 URL（一般为图片/视频）。
+            project_id: 可选的 Medeo project_id（若需要关联到 Medeo 侧项目）。
+
+        Returns:
+            Medeo 返回的 job 对象，包含 id/state/media_ids（media_ids 通常在完成时填充）。
+
+        Raises:
+            MedeoServiceError: 调用失败或缺少 API Key。
+        """
+        endpoint = f"{self._base_url}/api/v2/medias:create_from_url"
+        payload: Dict[str, Any] = {"url": url}
+        if project_id:
+            payload["project_id"] = project_id
+
+        timeout = httpx.Timeout(60.0)
+        async with self._client(timeout=timeout) as client:
+            resp = await client.post(endpoint, json=payload, headers=self._headers(require_auth=True))
+
+        if resp.status_code >= 400:
+            raise MedeoServiceError(f"create_media_from_url 失败: {resp.status_code} {resp.text}")
+        return resp.json()
+
+    async def get_media_creation_job_status(self, *, job_id: str) -> Dict[str, Any]:
+        """查询 Medeo Media 创建任务状态。
+
+        Args:
+            job_id: create_from_url 返回的 job id。
+
+        Returns:
+            Medeo 返回的 job 对象，包含 id/state/media_ids。
+
+        Raises:
+            MedeoServiceError: 调用失败或缺少 API Key。
+        """
+        endpoint = f"{self._base_url}/api/v2/medias:create_medias_job"
+        params = {"job_id": job_id}
+        timeout = httpx.Timeout(30.0)
+        async with self._client(timeout=timeout) as client:
+            resp = await client.get(endpoint, params=params, headers=self._headers(require_auth=True))
+
+        if resp.status_code >= 400:
+            raise MedeoServiceError(f"get_media_creation_job_status 失败: {resp.status_code} {resp.text}")
+        return resp.json()

@@ -16,7 +16,9 @@ import structlog
 from src.api.dependencies import get_current_active_user
 from src.models.database import get_db
 from src.models.schemas.medeo import (
+    MedeoCreateMediaFromUrlRequest,
     MedeoLastTaskStatusResponse,
+    MedeoMediaCreationJobResponse,
     MedeoProjectInitiateRequest,
     MedeoProjectInitiateResponse,
     MedeoProjectSnapshotResponse,
@@ -65,6 +67,50 @@ async def list_recipes(
     except Exception as e:
         logger.error("list_recipes failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="获取 recipes 失败")
+
+
+@router.post("/medias:create_from_url")
+async def create_media_from_url(
+    request: MedeoCreateMediaFromUrlRequest,
+    current_user: User = Depends(get_current_active_user),
+):
+    """从 URL 创建 Medeo media（异步 job）。"""
+    try:
+        svc = MedeoService()
+        data = await svc.create_media_from_url(url=request.url, project_id=request.project_id)
+        resp = MedeoMediaCreationJobResponse(
+            id=str(data.get("id") or ""),
+            state=str(data.get("state") or ""),
+            media_ids=data.get("media_ids"),
+        )
+        return {"code": 200, "message": "success", "data": resp.model_dump()}
+    except MedeoServiceError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        logger.error("create_media_from_url failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="创建 media 失败")
+
+
+@router.get("/medias:create_medias_job")
+async def get_media_creation_job(
+    job_id: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_active_user),
+):
+    """查询 Medeo media creation job 状态。"""
+    try:
+        svc = MedeoService()
+        data = await svc.get_media_creation_job_status(job_id=job_id)
+        resp = MedeoMediaCreationJobResponse(
+            id=str(data.get("id") or ""),
+            state=str(data.get("state") or ""),
+            media_ids=data.get("media_ids"),
+        )
+        return {"code": 200, "message": "success", "data": resp.model_dump()}
+    except MedeoServiceError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    except Exception as e:
+        logger.error("get_media_creation_job failed", error=str(e), exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="查询 media job 失败")
 
 
 @router.post("/projects/initiate")

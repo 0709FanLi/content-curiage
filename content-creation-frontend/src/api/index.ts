@@ -241,6 +241,12 @@ export const medeoApi = {
   listRecipes: (params?: { limit?: number; order?: 'asc' | 'desc' }): Promise<any> =>
     request.get('/medeo/recipes', { params }),
 
+  createMediaFromUrl: (data: { url: string; project_id?: string }): Promise<{ id: string; state: string; media_ids?: string[] }> =>
+    request.post('/medeo/medias:create_from_url', data),
+
+  getMediaCreationJob: (jobId: string): Promise<{ id: string; state: string; media_ids?: string[] }> =>
+    request.get('/medeo/medias:create_medias_job', { params: { job_id: jobId } }),
+
   initiateProject: (data: {
     prompt: string
     settings: {

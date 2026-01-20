@@ -75,3 +75,18 @@ class MedeoProjectUpdateRequest(BaseModel):
     render_metadata: Optional[Dict[str, Any]] = None
     last_error: Optional[str] = None
 
+
+class MedeoCreateMediaFromUrlRequest(BaseModel):
+    """从 URL 创建 Medeo media 的请求。"""
+
+    url: str = Field(..., min_length=1, description="可公开访问的媒体 URL")
+    project_id: Optional[str] = Field(default=None, description="可选的 Medeo project_id")
+
+
+class MedeoMediaCreationJobResponse(BaseModel):
+    """Medeo media creation job 返回结构（简化）。"""
+
+    id: str = Field(..., min_length=1)
+    state: str = Field(..., min_length=1)
+    media_ids: Optional[List[str]] = None
+
