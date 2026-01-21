@@ -1046,6 +1046,21 @@ const submit_generate_script = async () => {
     )
     const project_id = data?.projectId
     if (project_id) {
+      // 开发/调试可观测：把本次生成脚本的返回（含 visionAnalysis）写入 store，
+      // 这样跳转到脚本页后也能看到“参考图解析是否用到”的状态。
+      try {
+        const project = await projectApi.getProject(project_id)
+        const project_with_script = project as any
+        if (project_with_script.scripts && Array.isArray(project_with_script.scripts) && project_with_script.scripts.length > 0) {
+          project_with_script.script = project_with_script.scripts[0]
+        }
+        // 兜底：后端 project 详情未必包含本次生成返回的 meta，优先用 data 覆盖
+        project_with_script.script = { ...(project_with_script.script || {}), ...(data || {}) }
+        project_store.setCurrentProject(project_with_script)
+        project_store.addProject(project_with_script)
+      } catch (e) {
+        console.warn('同步项目到 store 失败（不影响跳转）:', e)
+      }
       stop_script_loading()
       await router.push({ path: `/project/${project_id}/script` })
     }

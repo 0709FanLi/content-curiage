@@ -72,6 +72,26 @@
                 </template>
                   </div>
 
+        <!-- DEV 可观测：参考图是否参与脚本生成（视觉解析注入） -->
+        <div
+          v-if="isDev && vision_analysis_meta"
+          class="vision-observe"
+        >
+          <span class="label">参考图解析：</span>
+          <span
+            class="status"
+            :class="vision_analysis_meta.status"
+          >
+            {{ vision_analysis_label }}
+          </span>
+          <span class="extra" v-if="typeof vision_analysis_meta.guidanceLength === 'number'">
+            （guidanceLen={{ vision_analysis_meta.guidanceLength }}）
+          </span>
+          <span class="extra" v-if="vision_analysis_meta.errorMessage">
+            原因：{{ vision_analysis_meta.errorMessage }}
+          </span>
+        </div>
+
         <!-- 生成关键帧区域（位置按 Figma 9:873） -->
         <div
           v-if="!isEditingScript"
@@ -432,6 +452,21 @@ const selectedAspectRatio = ref<string>('')
 const selectedQuality = ref<string>('')
 const aspectRatios = ref<string[]>([])
 const qualities = ref<string[]>([])
+
+const isDev = import.meta.env.DEV
+const vision_analysis_meta = computed<any>(() => {
+  return (projectStore.currentScript as any)?.visionAnalysis || null
+})
+const vision_analysis_label = computed(() => {
+  const m = vision_analysis_meta.value
+  if (!m) return ''
+  const status = String(m.status || '')
+  if (status === 'skipped') return '未启用（未上传参考图）'
+  if (status === 'success') return '已使用（已注入脚本生成）'
+  if (status === 'empty') return '解析为空（未注入）'
+  if (status === 'failed') return '解析失败（未注入）'
+  return status
+})
 
 const ALLOWED_ASPECT_RATIOS = ['9:16', '16:9'] as const
 
@@ -1190,6 +1225,39 @@ watch(() => scriptContent.value, () => {
   font-size: 14px;
   color: #909399;
   font-style: italic;
+}
+
+.vision-observe {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+  background: rgba(245, 247, 250, 0.8);
+  font-size: 13px;
+  color: #303133;
+}
+.vision-observe .label {
+  font-weight: 600;
+}
+.vision-observe .status {
+  margin-left: 6px;
+  font-weight: 600;
+}
+.vision-observe .status.success {
+  color: #67c23a;
+}
+.vision-observe .status.failed {
+  color: #f56c6c;
+}
+.vision-observe .status.empty {
+  color: #e6a23c;
+}
+.vision-observe .status.skipped {
+  color: #909399;
+}
+.vision-observe .extra {
+  margin-left: 6px;
+  color: #606266;
 }
 </style>
 

@@ -5,7 +5,7 @@
 import re
 import json
 import math
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -15,6 +15,7 @@ from src.services.vision_analysis_service import VisionAnalysisService
 from src.models.schemas.script import ScriptSegment, GenerateScriptRequest, ScriptUpdate
 from src.models.tables.script import Script
 from src.utils.exceptions import ValidationError, NotFoundError
+from src.config.settings import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -384,6 +385,16 @@ class ScriptService:
         
         # 如果有参考图，先进行视觉分析
         vision_guidance = None
+        vision_analysis: Dict[str, Any] = {
+            "attempted": bool(request.reference_image_urls and len(request.reference_image_urls) > 0),
+            "status": "skipped",  # skipped | success | empty | failed
+            "used": False,
+            "guidanceLength": 0,
+        }
+        # dev-only error details
+        vision_error_type: Optional[str] = None
+        vision_error_message: Optional[str] = None
+
         if request.reference_image_urls and len(request.reference_image_urls) > 0:
             try:
                 logger.info(
@@ -402,10 +413,14 @@ class ScriptService:
                         image_count=len(request.reference_image_urls),
                         guidance_length=len(vision_guidance)
                     )
+                    vision_analysis["status"] = "success"
+                    vision_analysis["used"] = True
+                    vision_analysis["guidanceLength"] = int(len(vision_guidance))
                 else:
                     logger.warning(
                         "Vision analysis returned no results, continuing without guidance"
                     )
+                    vision_analysis["status"] = "empty"
             except Exception as e:
                 # 视觉分析失败不应阻止脚本生成
                 logger.error(
@@ -414,6 +429,9 @@ class ScriptService:
                     error_type=type(e).__name__
                 )
                 vision_guidance = None
+                vision_analysis["status"] = "failed"
+                vision_error_type = type(e).__name__
+                vision_error_message = str(e)
         
         # 调用LLM生成脚本
         logger.info(
@@ -424,7 +442,9 @@ class ScriptService:
             total_duration=request.total_duration,
             segment_duration=request.segment_duration,
             using_custom_prompt=bool(prompt_template),
-            has_vision_guidance=bool(vision_guidance)
+            has_vision_guidance=bool(vision_guidance),
+            vision_analysis_status=vision_analysis.get("status"),
+            vision_guidance_length=vision_analysis.get("guidanceLength", 0),
         )
         
         script_content = await self.llm_service.generate_script(
@@ -597,13 +617,19 @@ class ScriptService:
                 total_duration=request.total_duration,
                 segment_duration=request.segment_duration
             )
-        
+
+        # dev-only: 把失败原因透出到返回值，便于前端可观测；生产环境不返回详细错误
+        if vision_analysis.get("status") == "failed" and settings.debug:
+            vision_analysis["errorType"] = vision_error_type
+            vision_analysis["errorMessage"] = vision_error_message
+
         return {
             "content": script_content,
             "segments": segments,
             "style": request.style,
             "total_duration": effective_total_duration,
             "segment_duration": request.segment_duration,
+            "vision_analysis": vision_analysis,
         }
 
     async def create_script(

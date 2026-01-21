@@ -40,6 +40,15 @@ export interface Script {
   optimizedContent?: string
   exportedVideoUrl?: string
   exported_video_url?: string
+  // 可观测：参考图是否参与“脚本生成”的视觉解析与注入（dev 环境可能包含 errorMessage）
+  visionAnalysis?: {
+    attempted: boolean
+    status: 'skipped' | 'success' | 'empty' | 'failed'
+    used: boolean
+    guidanceLength: number
+    errorType?: string
+    errorMessage?: string
+  }
 }
 
 export interface ScriptSegment {

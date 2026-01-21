@@ -186,6 +186,8 @@ async def generate_script(
             "id": script_id,
             "projectId": project_id,
             "content": result["content"],
+            # 可观测：参考图解析是否用于脚本生成（dev 环境会带 errorMessage）
+            "visionAnalysis": result.get("vision_analysis"),
             "segments": [
                 {
                     "id": seg.id,
