@@ -48,13 +48,22 @@ class ImageModelService:
         },
         "sora-image": {
             "name": "生活实拍风格 [用户见证/亲和力]",
-            "description": "图片生成模型",
+            "description": "图片生成模型（Sora Image）。注意：16:9/9:16 会在后端自动映射为更接近的 3:2/2:3 尺寸。",
             "aspect_ratios": [
-                "auto", "1:1", "3:2", "2:3"
+                # 前端关键帧流程目前仅放开 16:9 / 9:16 两种常用比例；
+                # Sora Image 实际不直接支持这两种比例，但后端会自动映射：
+                # 16:9 -> 3:2, 9:16 -> 2:3（见 ImageGenerationService.generate_image_sora）
+                "16:9",
+                "9:16",
+                "auto",
+                "1:1",
+                "3:2",
+                "2:3",
             ],
             "qualities": [],  # 无清晰度参数
             "has_quality_selector": False,
-            "supports_reference": False  # 不支持参考图
+            # 后端 /v1/draw/completions 支持 urls 传参考图（最多5张）
+            "supports_reference": True
         }
     }
 
