@@ -3,7 +3,7 @@
 """
 
 import asyncio
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any, Tuple
 import structlog
 from dashscope import MultiModalConversation
 import dashscope
@@ -291,27 +291,91 @@ class VisionAnalysisService:
         Returns:
             合并后的风格指导文本，如果分析失败返回None
         """
+        guidance, _meta = await self.analyze_and_merge_with_meta(image_urls, analysis_prompt)
+        return guidance
+
+    async def analyze_and_merge_with_meta(
+        self,
+        image_urls: List[str],
+        analysis_prompt: Optional[str] = None
+    ) -> Tuple[Optional[str], Dict[str, Any]]:
+        """分析图片并合并结果，同时返回可观测 meta（不抛出异常，便于上层继续生成脚本）。
+
+        Returns:
+            (merged_guidance_or_none, meta)
+
+        meta:
+            - attempted: bool
+            - status: disabled | success | empty | failed
+            - used: bool
+            - guidanceLength: int
+            - successCount / failedCount: int
+            - errorType / errorMessage: Optional[str]（取第一条失败原因）
+        """
+        meta: Dict[str, Any] = {
+            "attempted": bool(image_urls),
+            "status": "skipped",
+            "used": False,
+            "guidanceLength": 0,
+            "successCount": 0,
+            "failedCount": 0,
+        }
+
+        if not image_urls:
+            meta["status"] = "skipped"
+            return None, meta
+
+        if not self.api_key:
+            meta["status"] = "disabled"
+            meta["errorType"] = "MissingDashScopeApiKey"
+            meta["errorMessage"] = "DashScope API key 未配置（无法进行参考图解析）"
+            return None, meta
+
         try:
-            if not image_urls:
-                return None
-            
-            # 分析图片
-            analyses = await self.analyze_images(image_urls, analysis_prompt)
-            
+            tasks = [
+                self.analyze_single_image(url, analysis_prompt)
+                for url in image_urls
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            analyses: List[Dict[str, str]] = []
+            first_error: Optional[Exception] = None
+            failed = 0
+            for r in results:
+                if isinstance(r, Exception):
+                    failed += 1
+                    if first_error is None:
+                        first_error = r
+                else:
+                    analyses.append(r)
+
+            meta["successCount"] = len(analyses)
+            meta["failedCount"] = failed
+
             if not analyses:
-                logger.warning("All image analyses failed")
-                return None
-            
-            # 合并结果
+                meta["status"] = "failed"
+                if first_error is not None:
+                    meta["errorType"] = type(first_error).__name__
+                    meta["errorMessage"] = str(first_error)
+                return None, meta
+
             merged_guidance = await self.merge_analysis_results(analyses)
-            
-            return merged_guidance
-            
+            if merged_guidance:
+                meta["status"] = "success"
+                meta["used"] = True
+                meta["guidanceLength"] = int(len(merged_guidance))
+                return merged_guidance, meta
+
+            meta["status"] = "empty"
+            return None, meta
+
         except Exception as e:
             logger.error(
                 "Vision analysis and merge failed",
                 error=str(e),
                 error_type=type(e).__name__
             )
-            # 返回None而不是抛出异常，允许脚本生成继续进行
-            return None
+            meta["status"] = "failed"
+            meta["errorType"] = type(e).__name__
+            meta["errorMessage"] = str(e)
+            return None, meta

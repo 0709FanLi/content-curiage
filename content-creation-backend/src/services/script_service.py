@@ -383,55 +383,33 @@ class ScriptService:
         # 从数据库获取提示词模板
         prompt_template = await config_service.get_script_prompt()
         
-        # 如果有参考图，先进行视觉分析
-        vision_guidance = None
+        # 如果有参考图，先进行视觉分析（可观测 meta）
+        vision_guidance: Optional[str] = None
         vision_analysis: Dict[str, Any] = {
             "attempted": bool(request.reference_image_urls and len(request.reference_image_urls) > 0),
-            "status": "skipped",  # skipped | success | empty | failed
+            "status": "skipped",
             "used": False,
             "guidanceLength": 0,
         }
-        # dev-only error details
-        vision_error_type: Optional[str] = None
-        vision_error_message: Optional[str] = None
 
         if request.reference_image_urls and len(request.reference_image_urls) > 0:
-            try:
-                logger.info(
-                    "Starting vision analysis for reference images",
-                    image_count=len(request.reference_image_urls)
+            logger.info(
+                "Starting vision analysis for reference images",
+                image_count=len(request.reference_image_urls)
+            )
+            vision_service = VisionAnalysisService()
+            vision_guidance, meta = await vision_service.analyze_and_merge_with_meta(
+                image_urls=request.reference_image_urls
+            )
+            # meta 字段名与前端显示保持一致
+            vision_analysis = meta or vision_analysis
+            if not vision_guidance:
+                logger.warning(
+                    "Vision analysis returned no results, continuing without guidance",
+                    status=vision_analysis.get("status"),
+                    failed_count=vision_analysis.get("failedCount"),
+                    success_count=vision_analysis.get("successCount"),
                 )
-                
-                vision_service = VisionAnalysisService()
-                vision_guidance = await vision_service.analyze_and_merge(
-                    image_urls=request.reference_image_urls
-                )
-                
-                if vision_guidance:
-                    logger.info(
-                        "Vision analysis completed",
-                        image_count=len(request.reference_image_urls),
-                        guidance_length=len(vision_guidance)
-                    )
-                    vision_analysis["status"] = "success"
-                    vision_analysis["used"] = True
-                    vision_analysis["guidanceLength"] = int(len(vision_guidance))
-                else:
-                    logger.warning(
-                        "Vision analysis returned no results, continuing without guidance"
-                    )
-                    vision_analysis["status"] = "empty"
-            except Exception as e:
-                # 视觉分析失败不应阻止脚本生成
-                logger.error(
-                    "Vision analysis failed, continuing without guidance",
-                    error=str(e),
-                    error_type=type(e).__name__
-                )
-                vision_guidance = None
-                vision_analysis["status"] = "failed"
-                vision_error_type = type(e).__name__
-                vision_error_message = str(e)
         
         # 调用LLM生成脚本
         logger.info(
@@ -618,10 +596,10 @@ class ScriptService:
                 segment_duration=request.segment_duration
             )
 
-        # dev-only: 把失败原因透出到返回值，便于前端可观测；生产环境不返回详细错误
-        if vision_analysis.get("status") == "failed" and settings.debug:
-            vision_analysis["errorType"] = vision_error_type
-            vision_analysis["errorMessage"] = vision_error_message
+        # dev-only: 生产环境不返回详细错误（但 status/长度等保留）
+        if not settings.debug:
+            vision_analysis.pop("errorType", None)
+            vision_analysis.pop("errorMessage", None)
 
         return {
             "content": script_content,
