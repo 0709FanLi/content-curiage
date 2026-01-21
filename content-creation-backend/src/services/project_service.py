@@ -40,7 +40,8 @@ class ProjectService:
             name=project_data.name,
             description=project_data.description,
             user_id=user_id,
-            generation_mode=project_data.generation_mode or 'step_by_step'
+            generation_mode=project_data.generation_mode or 'step_by_step',
+            reference_image_urls=project_data.reference_image_urls,
         )
         
         self.db.add(project)

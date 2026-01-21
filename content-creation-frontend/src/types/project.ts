@@ -18,6 +18,7 @@ export interface Project {
   aspectRatio?: string
   quality?: string
   generationMode?: string  // 'one_click' 或 'step_by_step'
+  referenceImageUrls?: string[] // 参考图URL列表（用于关键帧 segment_0 定调）
   script?: Script
   keyframes?: Keyframe[]
   videoSegments?: VideoSegment[]

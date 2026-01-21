@@ -47,6 +47,20 @@ async def generate_keyframes(
         HTTPException: 生成失败
     """
     try:
+        ref_preview: List[str] = []
+        if request.reference_image_urls:
+            for u in request.reference_image_urls[:2]:
+                ref_preview.append(str(u)[:80])
+        logger.warning(
+            "Keyframe generate request",
+            script_id=request.script_id,
+            model=request.model,
+            aspect_ratio=request.aspect_ratio,
+            quality=request.quality,
+            only_first_frame=bool(request.only_first_frame),
+            reference_count=len(request.reference_image_urls or []),
+            reference_preview=ref_preview,
+        )
         keyframe_service = KeyframeService(db)
         keyframes = await keyframe_service.generate_keyframes(
             script_id=request.script_id,
@@ -125,6 +139,13 @@ async def continue_generate_keyframes(
         HTTPException: 生成失败
     """
     try:
+        logger.warning(
+            "Keyframe continue request",
+            script_id=script_id,
+            model=request.model,
+            aspect_ratio=request.aspect_ratio,
+            quality=request.quality,
+        )
         keyframe_service = KeyframeService(db)
         keyframes = await keyframe_service.continue_generate_remaining_keyframes(
             script_id=script_id,

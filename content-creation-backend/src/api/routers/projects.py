@@ -174,6 +174,7 @@ async def get_project(
             "aspectRatio": project.aspect_ratio,
             "quality": project.quality,
             "generationMode": project.generation_mode or 'step_by_step',
+            "referenceImageUrls": (project.reference_image_urls or []) if hasattr(project, "reference_image_urls") else [],
             "createdAt": project.created_at.isoformat() if project.created_at else None,
             "updatedAt": project.updated_at.isoformat() if project.updated_at else None,
         }

@@ -70,6 +70,19 @@ export const useProjectStore = defineStore('project', () => {
     if (isDifferentProject) {
       clearReferenceImages()
     }
+
+    // 如果后端项目详情携带了参考图，则回填到 store，保证刷新/重进项目后仍可用于关键帧生成
+    // 兼容驼峰/下划线两种字段名
+    const incoming_refs =
+      (project as any)?.referenceImageUrls ||
+      (project as any)?.reference_image_urls ||
+      []
+    if (Array.isArray(incoming_refs)) {
+      // 避免把“本地刚上传但后端还没存”的参考图误清空：只有在后端有值，或本地为空时才覆盖
+      if (incoming_refs.length > 0 || referenceImageUrls.value.length === 0) {
+        referenceImageUrls.value = incoming_refs.filter(Boolean)
+      }
+    }
   }
 
   const set_project_exported_video_url = (project_id: number, url: string) => {
@@ -94,6 +107,11 @@ export const useProjectStore = defineStore('project', () => {
   const updateCurrentProject = (updates: Partial<Project>) => {
     if (currentProject.value) {
       currentProject.value = { ...currentProject.value, ...updates }
+    }
+    // 如果更新里包含参考图，同步到 store（用于项目更新接口回写）
+    const refs = (updates as any)?.referenceImageUrls || (updates as any)?.reference_image_urls
+    if (Array.isArray(refs)) {
+      referenceImageUrls.value = refs.filter(Boolean)
     }
   }
 

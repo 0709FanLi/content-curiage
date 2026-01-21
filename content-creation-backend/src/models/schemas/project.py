@@ -31,6 +31,11 @@ class ProjectBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     generation_mode: str = Field("step_by_step", alias="generationMode")  # one_click 或 step_by_step
+    reference_image_urls: Optional[List[str]] = Field(
+        default=None,
+        alias="referenceImageUrls",
+        description="参考图URL列表（用于关键帧 segment_0 定调）",
+    )
     
     class Config:
         populate_by_name = True
@@ -50,6 +55,7 @@ class ProjectUpdate(BaseModel):
     image_model: Optional[str] = Field(None, max_length=100, alias="imageModel")
     aspect_ratio: Optional[str] = Field(None, max_length=50, alias="aspectRatio")
     quality: Optional[str] = Field(None, max_length=50)
+    reference_image_urls: Optional[List[str]] = Field(None, alias="referenceImageUrls")
 
     class Config:
         populate_by_name = True

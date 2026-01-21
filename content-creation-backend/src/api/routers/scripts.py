@@ -84,14 +84,18 @@ async def generate_script(
             project_data = ProjectCreate(
                 name=project_name,
                 description=request.inspiration[:500] if len(request.inspiration) > 500 else request.inspiration,
-                generation_mode=request.generation_mode or 'step_by_step'
+                generation_mode=request.generation_mode or 'step_by_step',
+                reference_image_urls=request.reference_image_urls,
             )
             project = await project_service.create_project(project_data, current_user.id)
             project_id = project.id
             
             # 更新项目的对话内容
             from src.models.schemas.project import ProjectUpdate
-            project_update = ProjectUpdate(conversation_content=request.inspiration)
+            project_update = ProjectUpdate(
+                conversation_content=request.inspiration,
+                reference_image_urls=request.reference_image_urls,
+            )
             await project_service.update_project(project_id, project_update, current_user.id)
             
             logger.info("项目自动创建成功", project_id=project_id, user_id=current_user.id)
@@ -108,6 +112,22 @@ async def generate_script(
         
         # 立即保存 script.id，避免后续访问时对象过期
         script_id = script.id
+
+        # 如果是复用已有 projectId 的场景，也要把参考图写入项目，保证刷新/重进后关键帧能继续使用
+        if request.reference_image_urls and len(request.reference_image_urls) > 0:
+            from src.models.schemas.project import ProjectUpdate
+            try:
+                await project_service.update_project(
+                    project_id,
+                    ProjectUpdate(reference_image_urls=request.reference_image_urls),
+                    current_user.id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to persist reference images to project",
+                    project_id=project_id,
+                    error=str(e),
+                )
         
         # 提取脚本的第一段作为项目描述
         # 解析脚本内容，提取第一个有效段落（跳过第0帧）

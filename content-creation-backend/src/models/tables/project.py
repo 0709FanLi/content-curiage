@@ -3,7 +3,7 @@
 """
 
 from datetime import datetime
-from sqlalchemy import String, DateTime, Text, Integer, ForeignKey, Enum
+from sqlalchemy import String, DateTime, Text, Integer, ForeignKey, Enum, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 import enum
@@ -37,6 +37,8 @@ class Project(Base):
     image_model: Mapped[str] = mapped_column(String(100), nullable=True)
     aspect_ratio: Mapped[str] = mapped_column(String(50), nullable=True)
     quality: Mapped[str] = mapped_column(String(50), nullable=True)
+    # 参考图（用于 keyframes segment_0 定调）。持久化以支持刷新/重进项目后仍可继续生成。
+    reference_image_urls: Mapped[list] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
