@@ -77,6 +77,86 @@ class ScriptService:
 
         return "\n".join(out_lines)
 
+    @staticmethod
+    def _strip_markdown_code_fences(text: str) -> str:
+        """提取 ```...``` 代码块内部文本（常见为 ```json），避免解析器误把 Markdown 当脚本。"""
+        if not text:
+            return ""
+        raw = str(text).strip()
+        if "```" not in raw:
+            return raw
+
+        m = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, flags=re.IGNORECASE)
+        if m and m.group(1):
+            return m.group(1).strip()
+
+        return raw.replace("```json", "").replace("```", "").strip()
+
+    @staticmethod
+    def _repair_json_like_script_to_text(
+        text: str,
+        *,
+        total_duration: int,
+        segment_duration: int,
+    ) -> str:
+        """
+        兜底修复：当模型输出了 JSON/类 JSON（例如包含 \"片段1\":\"(0-4s)\"）时，
+        尽量提取字段并拼回标准脚本文本格式。
+        """
+        if not text or not str(text).strip():
+            return ""
+
+        src = str(text)
+        if "片段" not in src:
+            return src.strip()
+
+        # 找到所有片段时间定义： "片段1": "(0-4s)"
+        seg_re = re.compile(
+            r'["“]?\s*片段\s*(\d+)\s*["”]?\s*:\s*["“]?\(?\s*(\d+)\s*-\s*(\d+)\s*s?\s*\)?["”]?',
+            flags=re.IGNORECASE,
+        )
+        matches = list(seg_re.finditer(src))
+        if not matches:
+            return src.strip()
+
+        def _extract(block: str, key: str) -> Optional[str]:
+            # 尝试抓取类似 "口播文案": "..." 的内容（默认不含未转义双引号）
+            pat = re.compile(rf'"{re.escape(key)}"\s*:\s*"([\s\S]*?)"\s*(?:,|\n|\}})', flags=re.IGNORECASE)
+            m = pat.search(block)
+            return m.group(1).strip() if m else None
+
+        segs = []
+        for idx, m in enumerate(matches):
+            start = int(m.group(2))
+            end = int(m.group(3))
+            block_start = m.end()
+            block_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(src)
+            block = src[block_start:block_end]
+
+            narration = _extract(block, "口播文案") or ""
+            keyframe = _extract(block, "关键帧") or ""
+            video = _extract(block, "视频") or ""
+            voice = _extract(block, "音色") or ""
+
+            segs.append((start, end, keyframe, video, voice, narration))
+
+        # 按时间排序并生成文本
+        segs.sort(key=lambda x: x[0])
+        out_lines: List[str] = []
+        for start, end, keyframe, video, voice, narration in segs:
+            out_lines.append(f"({start}-{end}s)")
+            out_lines.append(f"关键帧：{keyframe}".rstrip())
+            out_lines.append(f"视频：{video}".rstrip())
+            out_lines.append(f"音色：{voice}".rstrip())
+            out_lines.append(f"口播文案：{narration}".rstrip())
+            out_lines.append("")
+
+        repaired = "\n".join(out_lines).strip()
+        # 若修复后仍无时间戳，则回退
+        if "(" not in repaired:
+            return src.strip()
+        return repaired
+
 
     def parse_script_content(self, content: str, segment_duration: int) -> List[ScriptSegment]:
         """
@@ -353,12 +433,29 @@ class ScriptService:
             total_duration=request.total_duration,
             segment_duration=request.segment_duration,
             model=model,
-            custom_prompt_template=prompt_template,
+            # 追加一层“反 JSON/反 Markdown code block”的硬约束，避免自定义风格误导模型输出 JSON
+            custom_prompt_template=(
+                (prompt_template or "")
+                + "\n\n【严格输出格式约束】\n"
+                + "1) 只输出最终脚本文本，不要输出任何解释、不要输出 Markdown 代码块、不要输出 JSON。\n"
+                + "2) 每个片段必须以单独一行的时间戳开头，例如：(0-4s)\n"
+                + "3) 每个片段必须包含且仅包含以下四行字段：关键帧： / 视频： / 音色： / 口播文案：\n"
+                + "4) 严禁输出“第0帧/开场画面”。\n"
+            ),
             vision_guidance=vision_guidance,
             enable_search=getattr(request, "enable_search", False),
             style_name=style_name,
             style_description=style_description,
         )
+
+        # 兜底：如果模型输出了 ```json 或“片段1: (0-4s)”这类类JSON，先剥离/修复为标准脚本文本再进入解析逻辑
+        script_content = self._strip_markdown_code_fences(script_content)
+        if "片段" in script_content and ("\"" in script_content or "：" in script_content):
+            script_content = self._repair_json_like_script_to_text(
+                script_content,
+                total_duration=request.total_duration,
+                segment_duration=request.segment_duration,
+            )
 
         # 归一化时间戳：避免模型输出非均匀时间段导致 segments 与预期不一致
         # 同时强制最后一段至少 4 秒：若余量不足 4 秒，则向上补齐（可能超过 request.total_duration）
