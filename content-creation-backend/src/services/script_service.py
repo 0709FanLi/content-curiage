@@ -474,6 +474,54 @@ class ScriptService:
         # 解析脚本内容
         segments = self.parse_script_content(script_content, request.segment_duration)
 
+        # --- 格式兜底：如果模型完全没按格式输出，导致解析不到任何 segment ---
+        # 触发一次“格式重写”，让模型把现有内容转为标准脚本文本格式。
+        if not segments and script_content and script_content.strip():
+            try:
+                logger.warning(
+                    "No segments parsed; retrying with strict format rewrite",
+                    model=model,
+                )
+                format_rewrite_prompt = (
+                    "请将下面内容严格重写为【脚本文本格式】（不要输出解释/不要用代码块/不要输出JSON）：\n"
+                    "每个片段必须按如下结构：\n"
+                    "(开始秒数-结束秒数s)\n"
+                    "关键帧：...\n"
+                    "视频：...\n"
+                    "音色：...\n"
+                    "口播文案：...\n"
+                    "要求：\n"
+                    f"- 总时长：{effective_total_duration} 秒；单段时长：{request.segment_duration} 秒；片段数：{expected_segments}\n"
+                    "- 禁止出现“第0帧/开场画面”\n"
+                    "- 只输出最终脚本文本\n\n"
+                    "原内容如下：\n"
+                    + script_content
+                )
+                script_content = await self.llm_service.optimize_script(
+                    script_content=script_content,
+                    creative_description=format_rewrite_prompt,
+                    model=model,
+                    enable_search=getattr(request, "enable_search", False),
+                )
+                script_content = self._strip_markdown_code_fences(script_content)
+                script_content = self._repair_json_like_script_to_text(
+                    script_content,
+                    total_duration=effective_total_duration,
+                    segment_duration=request.segment_duration,
+                )
+                script_content = self._normalize_script_timestamps(
+                    script_content,
+                    total_duration=effective_total_duration,
+                    segment_duration=request.segment_duration,
+                )
+                segments = self.parse_script_content(script_content, request.segment_duration)
+            except Exception as exc:
+                logger.warning(
+                    "Format rewrite failed; returning original script",
+                    error=str(exc),
+                    model=model,
+                )
+
         # --- 口播字数兜底：不截断，触发一次“重写口播文案” ---
         # 背景：部分模型会忽略字数约束，导致 10s 只有 20 多字或超长。
         # 策略：若检测到明显不符合范围，则调用一次 optimize_script，只重写“口播文案”行。

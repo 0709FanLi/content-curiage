@@ -60,12 +60,13 @@ export const projectApi = {
 export const scriptApi = {
   generateScript: (data: GenerateScriptRequest, model?: string): Promise<Script> => {
     const url = model ? `/scripts/generate?model=${encodeURIComponent(model)}` : '/scripts/generate'
-    return request.post(url, data, { timeout: 180000 })
+    // deepseek-reasoner 等模型可能 >3min；提高超时避免前端误判“超时但后端已成功”
+    return request.post(url, data, { timeout: 420000 })
   },
 
   optimizeScript: (scriptId: number, optimization: string, model?: string, enableSearch?: boolean): Promise<Script> => {
     const url = model ? `/scripts/${scriptId}/optimize?model=${encodeURIComponent(model)}` : `/scripts/${scriptId}/optimize`
-    return request.post(url, { optimization, enableSearch: !!enableSearch }, { timeout: 180000 })
+    return request.post(url, { optimization, enableSearch: !!enableSearch }, { timeout: 420000 })
   },
 
   getScript: (id: number): Promise<Script> =>
