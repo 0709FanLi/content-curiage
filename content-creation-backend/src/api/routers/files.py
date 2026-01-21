@@ -184,3 +184,72 @@ async def upload_reference_images(
             status_code=500,
             detail=f'批量上传失败: {str(e)}'
         )
+
+
+@router.post('/upload-assets')
+async def upload_assets(
+    files: List[UploadFile] = File(..., description="素材文件列表（图片/视频），最多5个"),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传图片/视频素材到 OSS（用于 Medeo 等场景）。"""
+    try:
+        if len(files) > 5:
+            raise HTTPException(status_code=400, detail='最多只能上传5个素材')
+        if len(files) == 0:
+            raise HTTPException(status_code=400, detail='请至少上传1个素材')
+
+        allowed_image = {'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'}
+        allowed_video = {'video/mp4', 'video/webm', 'video/quicktime', 'video/mov'}
+        uploaded = []
+
+        for idx, file in enumerate(files):
+            file_data = await file.read()
+            content_type = (file.content_type or '').lower() or 'application/octet-stream'
+
+            if content_type not in allowed_image and content_type not in allowed_video:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'文件 {file.filename} 类型不支持，仅支持常见图片/视频格式'
+                )
+
+            try:
+                from io import BytesIO
+
+                upload_result = oss_service.upload_file(
+                    file_data=BytesIO(file_data),
+                    filename=file.filename or f'asset_{idx}',
+                    category='medeo_assets',
+                    content_type=content_type,
+                )
+
+                uploaded.append({
+                    'filename': file.filename,
+                    'url': upload_result['url'],
+                    'size': upload_result['size'],
+                    'content_type': content_type,
+                })
+
+                logger.info(
+                    '素材上传成功',
+                    user_id=current_user.id,
+                    filename=file.filename,
+                    url=upload_result['url'],
+                    content_type=content_type,
+                )
+            except Exception as e:
+                logger.error(
+                    '素材上传失败',
+                    user_id=current_user.id,
+                    filename=file.filename,
+                    error=str(e),
+                    exc_info=True,
+                )
+                raise HTTPException(status_code=500, detail=f'上传文件 {file.filename} 失败: {str(e)}')
+
+        return {'code': 200, 'message': 'success', 'data': {'files': uploaded, 'count': len(uploaded)}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error('上传素材失败', error=str(e), exc_info=True)
+        raise HTTPException(status_code=500, detail=f'上传素材失败: {str(e)}')

@@ -13,14 +13,32 @@
             placeholder="Ask Medeo to create a high-energy commercial..."
           />
 
-          <div v-if="assetUrls.length > 0" class="asset-urls">
-            <div class="asset-urls-title">Assets</div>
-            <div class="asset-urls-list">
-              <div v-for="u in assetUrls" :key="u" class="asset-url">
-                {{ u }}
-              </div>
+          <div v-if="assetItems.length > 0" class="asset-rail">
+            <div class="asset-rail-title">Assets</div>
+            <div class="asset-rail-list">
+              <button v-for="a in assetItems" :key="a.id" class="asset-card" type="button" @click="openAssetPreview(a)">
+                <img v-if="a.kind === 'image'" class="asset-thumb" :src="a.previewUrl" alt="asset" />
+                <video
+                  v-else
+                  class="asset-thumb"
+                  :src="a.previewUrl"
+                  muted
+                  playsinline
+                  preload="metadata"
+                  @loadedmetadata="onVideoMeta(a.id, $event)"
+                />
+                <div v-if="a.kind === 'video' && formatDuration(a.durationSec)" class="asset-duration">
+                  {{ formatDuration(a.durationSec) }}
+                </div>
+                <div v-if="a.status !== 'done'" class="asset-mask">
+                  <div class="asset-mask-text">
+                    {{ a.status === 'uploading' ? 'Uploading…' : a.status === 'processing' ? 'Processing…' : 'Failed' }}
+                  </div>
+                </div>
+                <button class="asset-del" type="button" title="Remove" @click.stop="removeAsset(a.id)">×</button>
+              </button>
             </div>
-            <div v-if="uploadingAssets" class="asset-urls-hint">正在上传并创建 Medeo media…</div>
+            <div v-if="uploadingAssets" class="asset-rail-hint">正在上传并创建 Medeo media…</div>
           </div>
 
           <div class="composer-bar">
@@ -38,7 +56,7 @@
                 ref="assetFileInputRef"
                 class="asset-file-input"
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 @change="handle_asset_files"
               />
@@ -190,6 +208,25 @@
     </section>
 
     <RecipePreviewDialog v-model="previewOpen" :recipe="previewRecipe" @use="previewUse" />
+
+    <el-dialog v-model="assetPreviewOpen" width="860" :show-close="true" align-center>
+      <template #header>
+        <div style="font-weight: 700">预览</div>
+      </template>
+      <div v-if="previewAsset" class="asset-preview">
+        <img v-if="previewAsset.kind === 'image'" class="asset-preview-media" :src="previewAsset.url" alt="asset" />
+        <video
+          v-else
+          class="asset-preview-media"
+          :src="previewAsset.url"
+          controls
+          autoplay
+          muted
+          playsinline
+        />
+        <div class="asset-preview-url">{{ previewAsset.url }}</div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -208,14 +245,32 @@ const router = useRouter()
 const creating = ref(false)
 const prompt = ref('')
 const aspectRatio = ref<'16:9' | '9:16'>('16:9')
-const durationMs = ref<number>(30000)
+type DurationValue = 'auto' | 15000 | 30000 | 60000
+const durationMs = ref<DurationValue>('auto')
 const selectedRecipeId = ref<string>('')
 const recipes = ref<MedeoRecipe[]>([])
 
-const assetUrls = ref<string[]>([])
+type AssetKind = 'image' | 'video'
+type AssetStatus = 'uploading' | 'processing' | 'done' | 'error'
+type MedeoAssetItem = {
+  id: string
+  url?: string
+  localUrl: string
+  previewUrl: string
+  filename?: string
+  contentType: string
+  kind: AssetKind
+  status: AssetStatus
+  mediaIds: string[]
+  durationSec?: number
+}
+
+const assetItems = ref<MedeoAssetItem[]>([])
 const mediaIds = ref<string[]>([])
 const uploadingAssets = ref(false)
 const assetFileInputRef = ref<HTMLInputElement | null>(null)
+const assetPreviewOpen = ref(false)
+const previewAsset = ref<MedeoAssetItem | null>(null)
 
 const previewOpen = ref(false)
 const previewRecipe = ref<MedeoRecipe | null>(null)
@@ -233,8 +288,8 @@ const moreSections = [
   { key: 'voice', label: 'Voice', icon: '🎙' }
 ] as const
 
-const durationOptions = [
-  { label: 'Auto', value: 30000 },
+const durationOptions: Array<{ label: string; value: DurationValue }> = [
+  { label: 'Auto', value: 'auto' },
   { label: '15s', value: 15000 },
   { label: '30s', value: 30000 },
   { label: '60s', value: 60000 }
@@ -263,6 +318,10 @@ const voiceOptions = [
 const durationLabel = computed(() => {
   const hit = durationOptions.find(x => x.value === durationMs.value)
   return hit?.label || 'Auto'
+})
+
+const durationMsToSend = computed<number>(() => {
+  return durationMs.value === 'auto' ? 30000 : durationMs.value
 })
 
 
@@ -333,10 +392,10 @@ async function onGenerate() {
       uploaded: ['my_uploaded_assets'],
       stock: ['stock_videos']
     }
-    const resp = await medeoApi.initiateProject({
+    const params = {
       prompt: prompt.value.trim(),
       settings: {
-        duration_ms: durationMs.value,
+        duration_ms: durationMsToSend.value,
         aspect_ratio: aspectRatio.value,
         recipe_id: selectedRecipeId.value || undefined,
         video_style_id: videoStyleId.value || undefined,
@@ -344,7 +403,9 @@ async function onGenerate() {
         asset_sources: sourcesMap[assetSource.value] || undefined
       },
       media_ids: mediaIds.value.length > 0 ? mediaIds.value : undefined
-    })
+    }
+    console.log('params', params)
+    const resp = await medeoApi.initiateProject(params)
     const pid = Number(resp?.project_id || 0)
     if (!pid) throw new Error('project_id 缺失')
     await router.push({ name: 'MedeoPreviewProject', params: { projectId: String(pid) } })
@@ -361,7 +422,7 @@ function pick_asset_files() {
   assetFileInputRef.value?.click()
 }
 
-async function upload_reference_images(files: File[]): Promise<string[]> {
+async function upload_assets(files: File[]): Promise<MedeoAssetItem[]> {
   const token = localStorage.getItem('accessToken')
   if (!token) throw new Error('未登录，请先登录')
 
@@ -370,7 +431,7 @@ async function upload_reference_images(files: File[]): Promise<string[]> {
     form.append('files', f)
   }
 
-  const resp = await fetch('/api/files/upload-reference-images', {
+  const resp = await fetch('/api/files/upload-assets', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: form
@@ -386,8 +447,26 @@ async function upload_reference_images(files: File[]): Promise<string[]> {
     throw new Error(json?.message || '上传失败')
   }
 
-  const images = json?.data?.images || []
-  return images.map((x: any) => x?.url).filter(Boolean)
+  const filesResp = json?.data?.files || []
+  const items: MedeoAssetItem[] = []
+  for (const x of filesResp) {
+    const url = String(x?.url || '').trim()
+    const ct = String(x?.content_type || x?.contentType || '').trim()
+    if (!url) continue
+    const kind: AssetKind = ct.startsWith('video/') ? 'video' : 'image'
+    items.push({
+      id: `remote_${Math.random().toString(16).slice(2)}`,
+      url,
+      localUrl: url,
+      previewUrl: url,
+      filename: String(x?.filename || ''),
+      contentType: ct || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+      kind,
+      status: 'processing',
+      mediaIds: []
+    })
+  }
+  return items
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -423,30 +502,110 @@ async function handle_asset_files(evt: Event) {
 
   try {
     const selected = Array.from(files)
-    const limited = selected.slice(0, 5)
-    if (selected.length > limited.length) {
-      ElMessage.warning('最多上传 5 张图片，已自动截取前 5 张')
+    const currentCount = assetItems.value.length
+    if (currentCount + selected.length > 5) {
+      ElMessage.warning('最多上传 5 个素材（图片/视频），请先删除再上传')
+      return
     }
 
+    // 1) 先插入本地预览卡片（立刻显示）
+    const tempIds: string[] = []
+    const tempItems: MedeoAssetItem[] = selected.map((f) => {
+      const local = URL.createObjectURL(f)
+      const kind: AssetKind = (f.type || '').startsWith('video/') ? 'video' : 'image'
+      const id = `asset_${Date.now()}_${Math.random().toString(16).slice(2)}`
+      tempIds.push(id)
+      return {
+        id,
+        url: undefined,
+        localUrl: local,
+        previewUrl: local,
+        filename: f.name,
+        contentType: f.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+        kind,
+        status: 'uploading',
+        mediaIds: []
+      }
+    })
+    assetItems.value = [...assetItems.value, ...tempItems]
+
+    // 2) 上传到 OSS -> 拿到远端 url
     uploadingAssets.value = true
-    const urls = await upload_reference_images(limited)
-    assetUrls.value = urls
+    const uploaded = await upload_assets(selected)
 
-    const allMediaIds: string[] = []
-    for (const u of urls) {
-      const ids = await create_media_id_from_url(u)
-      allMediaIds.push(...ids)
+    // 3) 用返回结果按顺序回填到临时卡片，然后 create_from_url -> media_ids
+    for (let i = 0; i < uploaded.length; i++) {
+      const tempId = tempIds[i]
+      const temp = assetItems.value.find((x) => x.id === tempId)
+      if (!temp) continue // 被用户删掉了
+
+      const remote = uploaded[i]
+      temp.url = remote.url
+      temp.contentType = remote.contentType
+      temp.kind = remote.kind
+      temp.status = 'processing'
+      temp.previewUrl = temp.localUrl || remote.url || temp.previewUrl
+
+      try {
+        const ids = await create_media_id_from_url(String(remote.url || ''))
+        // 若用户删掉了则不写回
+        const stillThere = assetItems.value.find((x) => x.id === tempId)
+        if (!stillThere) continue
+        stillThere.mediaIds = ids
+        stillThere.status = 'done'
+      } catch (e) {
+        const stillThere = assetItems.value.find((x) => x.id === tempId)
+        if (!stillThere) continue
+        stillThere.status = 'error'
+      }
     }
-    mediaIds.value = allMediaIds
+
+    mediaIds.value = assetItems.value.flatMap((x) => x.mediaIds || []).filter(Boolean)
     ElMessage.success('已上传并创建 Medeo media')
   } catch (e: any) {
     ElMessage.error(e?.message || '上传失败')
-    assetUrls.value = []
-    mediaIds.value = []
   } finally {
     uploadingAssets.value = false
     input.value = ''
   }
+}
+
+function openAssetPreview(a: MedeoAssetItem) {
+  // 优先用远端 url 预览（若尚未回填则用本地预览）
+  previewAsset.value = {
+    ...a,
+    previewUrl: a.url || a.previewUrl
+  }
+  assetPreviewOpen.value = true
+}
+
+function removeAsset(id: string) {
+  const target = assetItems.value.find((x) => x.id === id)
+  if (target?.localUrl) {
+    try { URL.revokeObjectURL(target.localUrl) } catch {}
+  }
+  assetItems.value = assetItems.value.filter((x) => x.id !== id)
+  mediaIds.value = assetItems.value.flatMap((x) => x.mediaIds || []).filter(Boolean)
+  if (previewAsset.value?.id === id) {
+    assetPreviewOpen.value = false
+    previewAsset.value = null
+  }
+}
+
+function onVideoMeta(id: string, evt: Event) {
+  const el = evt.target as HTMLVideoElement | null
+  const dur = el?.duration
+  if (!dur || !Number.isFinite(dur) || dur <= 0) return
+  const it = assetItems.value.find((x) => x.id === id)
+  if (it) it.durationSec = dur
+}
+
+function formatDuration(sec?: number) {
+  if (!sec || !Number.isFinite(sec) || sec <= 0) return ''
+  const s = Math.round(sec)
+  const mm = Math.floor(s / 60)
+  const ss = s % 60
+  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
 }
 </script>
 
@@ -495,6 +654,7 @@ async function handle_asset_files(evt: Event) {
   padding: 0 8px;
 }
 .composer-inner {
+  position: relative;
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(229, 231, 235, 0.9);
   border-radius: 26px;
@@ -510,30 +670,111 @@ async function handle_asset_files(evt: Event) {
   opacity: 0;
   pointer-events: none;
 }
-.asset-urls {
+.asset-rail {
   padding: 0 18px 10px 18px;
 }
-.asset-urls-title {
+.asset-rail-title {
   font-size: 12px;
   color: rgba(107, 114, 128, 0.9);
   margin-bottom: 6px;
 }
-.asset-urls-list {
+.asset-rail-list {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
-.asset-url {
-  font-size: 12px;
-  color: rgba(17, 24, 39, 0.82);
-  white-space: nowrap;
+.asset-card {
+  width: 140px;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  background: rgba(255, 255, 255, 0.6);
   overflow: hidden;
-  text-overflow: ellipsis;
+  position: relative;
+  cursor: pointer;
+  flex: 0 0 auto;
 }
-.asset-urls-hint {
+.asset-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.72);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 16px;
+  line-height: 18px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+.asset-card:hover .asset-del {
+  opacity: 1;
+  pointer-events: auto;
+}
+.asset-mask {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.asset-mask-text {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.95);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.asset-thumb {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  background: rgba(17, 24, 39, 0.06);
+}
+.asset-duration {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(17, 24, 39, 0.52);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.asset-rail-hint {
   margin-top: 6px;
   font-size: 12px;
   color: rgba(124, 58, 237, 0.9);
+}
+.asset-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.asset-preview-media {
+  width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  background: #0b0f19;
+  border-radius: 12px;
+}
+.asset-preview-url {
+  font-size: 12px;
+  color: rgba(107, 114, 128, 0.95);
+  word-break: break-all;
 }
 .composer-input {
   width: 100%;
