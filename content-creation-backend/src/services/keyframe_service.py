@@ -620,6 +620,21 @@ class KeyframeService:
                 used_model = model
                 max_retries = 2  # 每个模型最多尝试2次（失败后重试1次）
 
+                # 参考图强约束：仅“传 reference_image_urls”对部分模型（如 Seedream）约束较弱，
+                # 这里在 prompt 前自动追加一致性约束，让模型更偏向参考图主体。
+                prompt_to_use = prompt or ""
+                if reference_image_urls and len(reference_image_urls) > 0:
+                    reference_boost = (
+                        "【参考图强约束】\n"
+                        "你会收到参考图片（image）。请严格参考图片的主体与风格来生成：\n"
+                        "- 主体/人物：尽量保持同一人/同一主体（脸型、发型、服装、配色、标识、道具）一致\n"
+                        "- 风格/构图：尽量保持参考图的画风、光线、色调、构图与背景氛围一致\n"
+                        "- 允许变化：仅允许做必要的动作/表情/镜头变化来匹配文本\n"
+                        "- 禁止：不要更换性别/年龄/服装颜色/发型；不要改变主体身份\n"
+                        "在此基础上，按以下文本要求生成：\n"
+                    )
+                    prompt_to_use = reference_boost + prompt_to_use
+
                 # 记录参考图（仅记录数量与前2个URL前缀，便于排查“是否真的用了参考图/用了哪个模型”）
                 try:
                     ref_preview = []
@@ -650,11 +665,11 @@ class KeyframeService:
                                 attempt=retry_count,
                                 max_retries=max_retries,
                                 reference_count=len(reference_image_urls) if reference_image_urls else 0,
-                                prompt_preview=prompt[:100] if prompt else ''
+                                prompt_preview=prompt_to_use[:100] if prompt_to_use else ''
                             )
                             
                             result = await image_generation_service.generate_image(
-                                prompt=prompt,
+                                prompt=prompt_to_use,
                                 model=current_model,
                                 aspect_ratio=aspect_ratio,
                                 quality=quality,
