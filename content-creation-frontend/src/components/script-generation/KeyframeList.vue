@@ -490,15 +490,32 @@ const getKeyframeTitle = (keyframe: Keyframe) => {
 }
 
 const checkExistingVideos = async () => {
-  const scriptId = projectStore.currentScript?.id
-  if (!scriptId) return
-  
+  let scriptId = projectStore.currentScript?.id
+  if (!scriptId && props.projectId) {
+    try {
+      const project = await projectApi.getProject(props.projectId)
+      projectStore.setCurrentProject(project as any)
+      scriptId = (project as any)?.script?.id
+    } catch (error) {
+      console.error('重新加载项目失败:', error)
+    }
+  }
+
+  if (!scriptId) {
+    hasExistingVideos.value = projectStore.currentVideoSegments.length > 0
+    return
+  }
+
   try {
     const response = await videoApi.getVideoSegmentsByScript(scriptId)
-    hasExistingVideos.value = (response.videoSegments || []).length > 0
+    const segments = response?.videoSegments || []
+    hasExistingVideos.value = segments.length > 0
+    if (segments.length > 0) {
+      projectStore.updateVideoSegments(segments)
+    }
   } catch (error) {
     console.error('检查视频失败:', error)
-    hasExistingVideos.value = false
+    hasExistingVideos.value = projectStore.currentVideoSegments.length > 0
   }
 }
 
@@ -897,6 +914,24 @@ watch(() => props.projectId, async (newVal) => {
     await hydrate_completion_status()
   }
 })
+
+watch(
+  () => projectStore.currentScript?.id,
+  async (newVal, oldVal) => {
+    if (newVal && newVal !== oldVal) {
+      await checkExistingVideos()
+    }
+  }
+)
+
+watch(
+  () => projectStore.currentVideoSegments.length,
+  (len) => {
+    if (len > 0) {
+      hasExistingVideos.value = true
+    }
+  }
+)
 </script>
 
 <style scoped>
