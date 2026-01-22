@@ -113,4 +113,6 @@ deploy-to-aliyun-prod.sh
 deploy-to-aliyun-prod.sh
 *.sh
 deploy-config.example
+prod.sh
 
+prod.sh
