@@ -478,7 +478,19 @@ class DeepSeekService:
                 response.raise_for_status()
                 result = response.json()
                 
-                content = result["choices"][0]["message"]["content"].strip()
+                content = str(result["choices"][0]["message"].get("content") or "").strip()
+                if not content:
+                    preview = ""
+                    try:
+                        preview = json.dumps(result, ensure_ascii=False)[:500]
+                    except Exception:
+                        preview = str(result)[:500]
+                    logger.error(
+                        "DeepSeek returned empty content (optimization)",
+                        model=model,
+                        response_preview=preview,
+                    )
+                    raise ExternalServiceError("DeepSeek", "优化结果为空（模型未返回有效内容）")
                 logger.info(
                     "DeepSeek script optimization completed",
                     model=model

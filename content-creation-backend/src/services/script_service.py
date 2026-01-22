@@ -505,6 +505,8 @@ class ScriptService:
                     model=model,
                     enable_search=getattr(request, "enable_search", False),
                 )
+                if not script_content or not str(script_content).strip():
+                    raise ValidationError("脚本格式重写结果为空，请稍后重试或更换模型")
                 script_content = self._strip_markdown_code_fences(script_content)
                 script_content = self._repair_json_like_script_to_text(
                     script_content,
@@ -572,6 +574,8 @@ class ScriptService:
                     model=model,
                     enable_search=getattr(request, "enable_search", False),
                 )
+                if not script_content or not str(script_content).strip():
+                    raise ValidationError("脚本口播优化结果为空，请稍后重试或更换模型")
                 # 再次归一化时间戳，避免优化过程改坏时间段
                 script_content = self._normalize_script_timestamps(
                     script_content,
@@ -588,6 +592,12 @@ class ScriptService:
                     model=model,
                 )
         
+        # 最终兜底：如果仍解析不到任何段落，直接失败（避免返回 code=200 但 content/segments 为空）
+        if not segments:
+            raise ValidationError(
+                "脚本解析失败：未能从模型输出中解析出任何片段（请稍后重试或更换模型/风格）"
+            )
+
         # 如果解析的片段数量不对，记录警告（向上取整，确保总时长不少于用户输入）
         expected_segments = math.ceil(request.total_duration / request.segment_duration)
         # 允许一定的误差，或者只是警告
