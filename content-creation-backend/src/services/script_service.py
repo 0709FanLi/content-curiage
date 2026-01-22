@@ -446,6 +446,10 @@ class ScriptService:
             style_description=style_description,
         )
 
+        if not script_content or not str(script_content).strip():
+            # 兜底：禁止返回空脚本（否则前端会拿到 code=200 但 content=""）
+            raise ValidationError("脚本生成结果为空，请稍后重试或更换模型")
+
         # 兜底：如果模型输出了 ```json 或“片段1: (0-4s)”这类类JSON，先剥离/修复为标准脚本文本再进入解析逻辑
         script_content = self._strip_markdown_code_fences(script_content)
         if "片段" in script_content and ("\"" in script_content or "：" in script_content):

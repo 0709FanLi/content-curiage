@@ -369,7 +369,20 @@ class DeepSeekService:
                 response.raise_for_status()
                 result = response.json()
                 
-                content = result["choices"][0]["message"]["content"].strip()
+                content = str(result["choices"][0]["message"].get("content") or "").strip()
+                if not content:
+                    # 避免出现“接口返回 200，但内容为空”导致前端拿到空脚本且 code=200
+                    preview = ""
+                    try:
+                        preview = json.dumps(result, ensure_ascii=False)[:500]
+                    except Exception:
+                        preview = str(result)[:500]
+                    logger.error(
+                        "DeepSeek returned empty content",
+                        model=model,
+                        response_preview=preview,
+                    )
+                    raise ExternalServiceError("DeepSeek", "生成内容为空（模型未返回有效脚本）")
                 logger.info(
                     "DeepSeek script generation completed",
                     model=model,
